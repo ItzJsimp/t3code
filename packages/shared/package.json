@@ -7,6 +7,10 @@
       "types": "./src/answerBlocks.ts",
       "import": "./src/answerBlocks.ts"
     },
+    "./dictationTrigger": {
+      "types": "./src/dictationTrigger.ts",
+      "import": "./src/dictationTrigger.ts"
+    },
     "./canvas": {
       "types": "./src/canvas.ts",
       "import": "./src/canvas.ts"
