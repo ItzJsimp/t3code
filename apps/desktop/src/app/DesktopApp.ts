@@ -7,9 +7,11 @@ import * as Schema from "effect/Schema";
 
 import type { DesktopServerExposureMode } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
+import { defaultDictationTriggers } from "@t3tools/shared/dictationTrigger";
 import * as Crypto from "effect/Crypto";
 import * as Electron from "electron";
 import { CAPTURE_MENU_ACTION, registerCaptureHotkey } from "../capture/DesktopCaptureHotkey.ts";
+import * as DictationHotkey from "../dictationHotkey/DictationHotkey.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
@@ -212,6 +214,27 @@ const bootstrap = Effect.gen(function* () {
         .pipe(Effect.ignoreCause),
     );
   });
+
+  // OS-wide dictation trigger: a hidden helper eats the trigger and holds F24 for Discord Push to Mute.
+  if (environment.platform === "win32") {
+    yield* Effect.gen(function* () {
+      const helper = yield* DictationHotkey.spawnWindowsInputHook(yield* HostProcess.Environment);
+      yield* DictationHotkey.runDictationHotkey(helper, {
+        triggers: defaultDictationTriggers("win32"),
+        mode: "toggle",
+        onAction: (action) =>
+          desktopWindow
+            .dispatchMenuAction(DictationHotkey.DICTATION_MENU_ACTIONS[action])
+            .pipe(Effect.ignoreCause),
+      });
+    }).pipe(
+      Effect.scoped,
+      Effect.catchCause((cause) =>
+        Effect.logWarning("dictation hotkey stopped", { cause: Cause.pretty(cause) }),
+      ),
+      Effect.forkScoped,
+    );
+  }
 
   if (!settings.localEnvironmentEnabled) {
     yield* logBootstrapInfo("bootstrap skipping local environment (disabled in settings)");
