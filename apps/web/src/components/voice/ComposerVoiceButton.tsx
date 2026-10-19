@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useSplitPane } from "../split/splitPaneContext";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -23,10 +24,13 @@ export function ComposerVoiceButton({
   environmentId,
   disabled,
   onText,
+  globalTrigger = false,
 }: {
   environmentId: EnvironmentId;
   disabled: boolean;
   onText: (text: string) => boolean;
+  /** Answer the OS-wide dictation trigger (desktop) when this composer's pane is active. */
+  globalTrigger?: boolean;
 }) {
   const [state, setState] = useState<"idle" | "starting" | "listening" | "writing">("idle");
   const [setup, setSetup] = useState(false);
@@ -36,6 +40,10 @@ export function ComposerVoiceButton({
   const recording = useRef<ReturnType<typeof recordVoice> | null>(null);
   const active = useRef(true);
   const busy = useRef(false);
+  // A global stop can arrive while the mic is still opening; apply it once the recording exists.
+  const opening = useRef(false);
+  const pendingEnd = useRef<"stop" | "cancel" | null>(null);
+  const { active: paneActive } = useSplitPane();
   const insert = useRef(onText);
   useEffect(() => {
     insert.current = onText;
@@ -56,9 +64,13 @@ export function ComposerVoiceButton({
     const timer = setInterval(() => setSeconds((value) => value + 1), 1000);
     return () => clearInterval(timer);
   }, [state]);
-  const start = async () => {
-    if (busy.current) return;
+  const start = async (viaGlobal = false) => {
+    if (busy.current) {
+      if (viaGlobal) void window.desktopBridge?.dictationEnded?.();
+      return;
+    }
     busy.current = true;
+    opening.current = true;
     setError("");
     setState("starting");
     try {
@@ -84,6 +96,8 @@ export function ComposerVoiceButton({
       }
       const session = recordVoice(stream);
       recording.current = session;
+      opening.current = false;
+      if (pendingEnd.current) session[pendingEnd.current]();
       setSeconds(0);
       setState("listening");
       const blob = await session.result;
@@ -109,9 +123,28 @@ export function ComposerVoiceButton({
         );
     } finally {
       busy.current = false;
+      opening.current = false;
+      pendingEnd.current = null;
       if (active.current) setState("idle");
+      // Releases the Discord mute key at once when setup, the mic or the transcription failed.
+      if (viaGlobal) void window.desktopBridge?.dictationEnded?.();
     }
   };
+  const startRef = useRef(start);
+  useEffect(() => {
+    startRef.current = start;
+  });
+  useEffect(() => {
+    if (!globalTrigger || !paneActive) return;
+    return window.desktopBridge?.onMenuAction((action) => {
+      if (action === "dictation-start") return void startRef.current(true);
+      const end =
+        action === "dictation-stop" ? "stop" : action === "dictation-cancel" ? "cancel" : null;
+      if (!end) return;
+      if (recording.current) recording.current[end]();
+      else if (opening.current) pendingEnd.current = end;
+    });
+  }, [globalTrigger, paneActive]);
   return (
     <>
       <div className="relative flex items-center gap-1">

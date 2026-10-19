@@ -8036,6 +8036,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     <ComposerVoiceButton
                       key={`${environmentId}:${activeThreadId ?? draftId}`}
                       environmentId={environmentId}
+                      globalTrigger
                       disabled={!canOperateThread || isConnecting}
                       onText={(text) =>
                         insertComposerText(text, "cursor", { ensureLeadingBoundary: true })

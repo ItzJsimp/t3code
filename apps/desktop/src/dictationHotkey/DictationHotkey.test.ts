@@ -1,8 +1,8 @@
 import { defaultDictationTriggers } from "@t3tools/shared/dictationTrigger";
-import { Effect, Stream } from "effect";
+import { Effect, Fiber, Queue, Stream } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 
-import { parseHookLine, runDictationHotkey } from "./DictationHotkey.ts";
+import { endActiveDictation, parseHookLine, runDictationHotkey } from "./DictationHotkey.ts";
 
 const drive = Effect.fn(function* (lines: string[], mode: "toggle" | "hold" = "toggle") {
   const sent: string[] = [];
@@ -59,6 +59,34 @@ describe("runDictationHotkey", () => {
     Effect.gen(function* () {
       const { sent } = yield* drive(["down toggle"]);
       expect(sent.at(-1)).toBe("mute up");
+    }),
+  );
+
+  it.effect("a renderer end releases the Discord key and resets the trigger", () =>
+    Effect.gen(function* () {
+      const lines = yield* Queue.unbounded<string>();
+      const sent: string[] = [];
+      const actions: string[] = [];
+      const run = yield* runDictationHotkey(
+        {
+          lines: Stream.fromQueue(lines),
+          send: (line) => Effect.sync(() => void sent.push(line)),
+        },
+        {
+          triggers: defaultDictationTriggers("win32"),
+          mode: "toggle",
+          onAction: (action) => Effect.sync(() => void actions.push(action)),
+        },
+      ).pipe(Effect.forkChild);
+      yield* Queue.offer(lines, "down toggle");
+      yield* Effect.yieldNow;
+      yield* endActiveDictation;
+      // The next press starts a new dictation instead of stopping the failed one.
+      yield* Queue.offer(lines, "down toggle");
+      yield* Effect.yieldNow;
+      yield* Fiber.interrupt(run);
+      expect(actions).toEqual(["start", "start"]);
+      expect(sent.slice(1, 4)).toEqual(["mute down", "mute up", "mute down"]);
     }),
   );
 });

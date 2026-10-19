@@ -27,6 +27,12 @@ export interface InputHookHelper {
   readonly send: (line: string) => Effect.Effect<void>;
 }
 
+// shortcut: one module-level handle to the single running hook; move into a service if a second consumer appears.
+let endActive: Effect.Effect<void> = Effect.void;
+
+/** The renderer finished (or failed) a dictation: reset the trigger and release F24 now. */
+export const endActiveDictation = Effect.suspend(() => endActive);
+
 export function parseHookLine(line: string): DictationTriggerEvent | undefined {
   if (line === "other") return { type: "other" };
   const [type, trigger] = line.split(" ");
@@ -55,6 +61,11 @@ export const runDictationHotkey = Effect.fn("DictationHotkey.run")(function* (
     `config ${options.triggers.toggle}|${options.triggers.hold}|${options.triggers.mouse}`,
   );
   let state: DictationTriggerState = idleDictationTrigger;
+  endActive = Effect.suspend(() => {
+    if (state.kind === "idle") return Effect.void;
+    state = idleDictationTrigger;
+    return helper.send("mute up");
+  });
   yield* helper.lines.pipe(
     Stream.runForEach((line) => {
       const event = parseHookLine(line.trim());
@@ -71,7 +82,11 @@ export const runDictationHotkey = Effect.fn("DictationHotkey.run")(function* (
         .send(action === "start" ? "mute down" : "mute up")
         .pipe(Effect.andThen(options.onAction(action)));
     }),
-    Effect.ensuring(helper.send("mute up")),
+    Effect.ensuring(
+      Effect.sync(() => {
+        endActive = Effect.void;
+      }).pipe(Effect.andThen(helper.send("mute up"))),
+    ),
   );
 });
 
