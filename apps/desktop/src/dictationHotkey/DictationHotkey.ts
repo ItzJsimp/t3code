@@ -32,6 +32,16 @@ export interface InputHookHelper {
 // shortcut: one module-level handle to the single running hook; move into a service if a second consumer appears.
 let endActive: Effect.Effect<void> = Effect.void;
 
+let sendToHelper: (line: string) => Effect.Effect<void> = () => Effect.void;
+
+/** Taps the hidden Discord key (F24) once, so Discord's keybind recorder can capture it. */
+export const tapHiddenKey = Effect.suspend(() =>
+  sendToHelper("mute down").pipe(
+    Effect.andThen(Effect.sleep(150)),
+    Effect.andThen(sendToHelper("mute up")),
+  ),
+);
+
 /** The renderer finished (or failed) a dictation: reset the trigger and release F24 now. */
 export const endActiveDictation = Effect.suspend(() => endActive);
 
@@ -99,6 +109,7 @@ export const runDictationHotkey = Effect.fn("DictationHotkey.run")(function* (
   },
 ) {
   yield* helper.send(configLine(options.triggers));
+  sendToHelper = helper.send;
   let state: DictationTriggerState = idleDictationTrigger;
   let mode = options.mode;
   endActive = Effect.suspend(() => {
@@ -130,6 +141,7 @@ export const runDictationHotkey = Effect.fn("DictationHotkey.run")(function* (
     Effect.ensuring(
       Effect.sync(() => {
         endActive = Effect.void;
+        sendToHelper = () => Effect.void;
         applyConfig = () => Effect.void;
       }).pipe(Effect.andThen(helper.send("mute up"))),
     ),

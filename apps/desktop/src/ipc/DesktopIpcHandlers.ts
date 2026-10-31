@@ -60,7 +60,7 @@ import {
   setTheme,
   showContextMenu,
 } from "./methods/window.ts";
-import { dictationEnded } from "./methods/dictation.ts";
+import { dictationEnded, discordSetupStatus, tapDiscordKey } from "./methods/dictation.ts";
 import {
   acknowledgeSnapShot,
   checkSnapShotShortcut,
@@ -165,6 +165,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(checkSystemPermission);
   yield* ipc.handle(pasteAsText);
   yield* ipc.handle(dictationEnded);
+  yield* ipc.handle(discordSetupStatus);
+  yield* ipc.handle(tapDiscordKey);
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);

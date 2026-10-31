@@ -17,6 +17,8 @@ import {
   DialogPanel,
   DialogFooter,
 } from "../ui/dialog";
+import { DiscordTip, shouldShowDiscordTip } from "./DiscordTip";
+import { DiscordWalkthrough } from "./DiscordWalkthrough";
 import { VoiceSetup } from "./VoiceSetup";
 import { recordVoice, voiceAudioBase64 } from "./recordVoice";
 
@@ -34,6 +36,8 @@ export function ComposerVoiceButton({
 }) {
   const [state, setState] = useState<"idle" | "starting" | "listening" | "writing">("idle");
   const [setup, setSetup] = useState(false);
+  const [discordTip, setDiscordTip] = useState(false);
+  const [discordSteps, setDiscordSteps] = useState(false);
   const [error, setError] = useState("");
   const [retainedText, setRetainedText] = useState("");
   const [seconds, setSeconds] = useState(0);
@@ -89,6 +93,7 @@ export function ComposerVoiceButton({
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
         throw new Error("Microphone access needs the desktop app or an HTTPS connection.");
       }
+      void shouldShowDiscordTip().then((show) => active.current && setDiscordTip(show));
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!active.current) {
         stream.getTracks().forEach((track) => track.stop());
@@ -183,6 +188,15 @@ export function ComposerVoiceButton({
                 : "Opening mic..."}
           </span>
         )}
+        {discordTip && (
+          <DiscordTip
+            onOpen={() => {
+              setDiscordTip(false);
+              setDiscordSteps(true);
+            }}
+            onDismiss={() => setDiscordTip(false)}
+          />
+        )}
         {(error || retainedText) && (
           <div className="absolute bottom-full right-0 z-20 mb-2 w-72 rounded-lg border bg-popover p-3 text-sm shadow-lg">
             {error && <p role="alert">{error}</p>}
@@ -223,6 +237,7 @@ export function ComposerVoiceButton({
           </div>
         )}
       </div>
+      <DiscordWalkthrough open={discordSteps} onOpenChange={setDiscordSteps} />
       <Dialog open={setup} onOpenChange={setSetup}>
         <DialogPopup>
           <DialogHeader>

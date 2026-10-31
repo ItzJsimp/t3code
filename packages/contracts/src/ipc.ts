@@ -1140,6 +1140,13 @@ export const DesktopPreviewRecordingSaveInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export interface DiscordSetupStatus {
+  readonly discordRunning: boolean;
+  readonly wisprRunning: boolean;
+  /** done: the hidden bind exists. missing: it does not. unknown: the Discord store could not be read. */
+  readonly bind: "done" | "missing" | "unknown";
+}
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
@@ -1258,6 +1265,10 @@ export interface DesktopBridge {
   pasteAsText?: () => Promise<void>;
   /** Ends a dictation the OS-wide trigger started: resets the trigger and releases the Discord mute key. */
   dictationEnded?: () => Promise<void>;
+  /** Read-only check of Discord, Wispr Flow and the hidden Push to Mute bind. Optional: older desktop builds lack it. */
+  discordSetupStatus?: () => Promise<DiscordSetupStatus>;
+  /** Taps the hidden Discord key (F24) once, so Discord's keybind recorder can capture it. */
+  tapDiscordKey?: () => Promise<void>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   onSnapShotEvent?: (listener: (event: DesktopSnapShotEvent) => void) => () => void;
   /**
