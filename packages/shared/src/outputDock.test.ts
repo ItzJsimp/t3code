@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { parseOutputDock } from "./outputDock.ts";
+import { parseOutputDock, replyStatusOf } from "./outputDock.ts";
 
 const reply = `🎯 **Focus:** \`Code\` · **Step:** \`Build\`
 
@@ -165,4 +165,18 @@ describe("status bar", () => {
       expect(dock.body.startsWith(line)).toBe(true);
     },
   );
+});
+
+describe("replyStatusOf", () => {
+  it("reads the state from the first line of a reply", () => {
+    expect(replyStatusOf("✅ Done · 🧠 None · 📍 Shipped\n\nBody")).toBe("done");
+    expect(replyStatusOf("⏸️ Need you · 🧠 Glance\n\nBody")).toBe("need-you");
+    expect(replyStatusOf("❌ Blocked · 🧠 Think\n\nBody")).toBe("blocked");
+  });
+
+  it("returns null for plain replies and for a status line that is not first", () => {
+    expect(replyStatusOf("Just an answer")).toBeNull();
+    expect(replyStatusOf("Intro\n✅ Done · 🧠 None")).toBeNull();
+    expect(replyStatusOf("")).toBeNull();
+  });
 });

@@ -146,6 +146,8 @@ export interface EnvironmentThreadShell {
   readonly lastVisitedAt?: string | null;
   /** Pending title regeneration marker; null when no request is in flight. */
   readonly titleRegeneration?: { readonly requestId: string; readonly startedAt: string } | null;
+  /** State on the status bar of the newest finished reply. */
+  readonly lastReplyStatus?: OrchestrationV2ThreadShell["lastReplyStatus"];
   readonly appGoal?: OrchestrationV2ThreadShell["appGoal"];
   readonly attachedSubagent?: OrchestrationV2ThreadShell["attachedSubagent"];
   readonly replyStyle?: OrchestrationV2ThreadShell["replyStyle"];
@@ -289,6 +291,7 @@ export function presentThreadShell(
     ...(thread.lastVisitedAt === undefined
       ? {}
       : { lastVisitedAt: nullableIso(thread.lastVisitedAt) }),
+    lastReplyStatus: thread.lastReplyStatus ?? null,
     titleRegeneration:
       thread.titleRegeneration == null
         ? null

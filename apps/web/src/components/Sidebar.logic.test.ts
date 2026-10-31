@@ -7,6 +7,7 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   animateSidebarLayoutChanges,
+  resolveReplyStatusMark,
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
@@ -2431,5 +2432,19 @@ describe("threadActivityTimestamp", () => {
         updatedAt,
       }),
     ).toBe("not-a-date");
+  });
+});
+
+describe("resolveReplyStatusMark", () => {
+  it("marks a finished chat by the state on its last reply", () => {
+    expect(resolveReplyStatusMark("ready", "done")).toBe("done");
+    expect(resolveReplyStatusMark("waiting", "need-you")).toBe("need-you");
+  });
+
+  it("shows nothing while the chat works or when the reply has no usable state", () => {
+    expect(resolveReplyStatusMark("working", "done")).toBeNull();
+    expect(resolveReplyStatusMark("ready", "blocked")).toBeNull();
+    expect(resolveReplyStatusMark("ready", null)).toBeNull();
+    expect(resolveReplyStatusMark("ready", undefined)).toBeNull();
   });
 });

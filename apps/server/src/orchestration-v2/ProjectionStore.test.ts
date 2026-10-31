@@ -5997,3 +5997,28 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 });
+
+it("reads the reply status from the newest finished assistant message", () => {
+  const message = (role: string, text: string, at: number, streaming = false) => ({
+    role,
+    text,
+    streaming,
+    updatedAt: DateTime.makeUnsafe(at),
+  });
+  const done = "✅ Done · 🧠 None · 📍 Shipped\n\nBody";
+  const needYou = "⏸️ Need you · 🧠 Glance\n\nBody";
+  const status = ProjectionStore.newestReplyStatus;
+  assert.equal(status([message("user", "Do it", 1), message("assistant", done, 2)]), "done");
+  assert.equal(
+    status([message("assistant", done, 2), message("assistant", needYou, 3)]),
+    "need-you",
+  );
+  // A streaming draft, a plain reply and a user message after the reply all give no status.
+  assert.equal(
+    status([message("assistant", done, 2), message("assistant", needYou, 3, true)]),
+    "done",
+  );
+  assert.isNull(status([message("assistant", "Plain answer", 2)]));
+  assert.isNull(status([message("assistant", done, 2), message("user", "And now?", 3)]));
+  assert.isNull(status([]));
+});

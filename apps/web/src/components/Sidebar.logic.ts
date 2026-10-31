@@ -1493,3 +1493,12 @@ export function threadActivityTimestamp(
   }
   return lastActivityAt ?? latestUserMessageAt ?? thread.updatedAt;
 }
+
+/** Icon beside a chat name, from the state on its last reply; nothing while the chat works. */
+export function resolveReplyStatusMark(
+  status: SidebarThreadStatus,
+  lastReplyStatus: SidebarThreadSummary["lastReplyStatus"],
+): "done" | "need-you" | null {
+  if (status === "working") return null;
+  return lastReplyStatus === "done" || lastReplyStatus === "need-you" ? lastReplyStatus : null;
+}

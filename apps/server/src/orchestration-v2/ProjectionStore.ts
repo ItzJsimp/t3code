@@ -81,6 +81,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import type * as Statement from "effect/sql/Statement";
 
 import { MCP_APP_OUTPUT_KEY } from "@t3tools/shared/mcpApp";
+import { replyStatusOf } from "@t3tools/shared/outputDock";
 import { threadHtmlRenderAttachmentIds } from "../attachmentStore.ts";
 import {
   isThreadHistoryUserTurn,
@@ -1429,6 +1430,29 @@ function secretRequestAsPendingInput(
   };
 }
 
+/** Status of the newest finished assistant reply; null when the user wrote after it. */
+export function newestReplyStatus(
+  messages: ReadonlyArray<{
+    readonly role: string;
+    readonly streaming: boolean;
+    readonly text: string;
+    readonly updatedAt: DateTime.Utc;
+  }>,
+) {
+  let reply: (typeof messages)[number] | undefined;
+  let replyAt = -1;
+  let userAt = -1;
+  for (const message of messages) {
+    const at = DateTime.toEpochMillis(message.updatedAt);
+    if (message.role === "user") userAt = Math.max(userAt, at);
+    else if (message.role === "assistant" && !message.streaming && at > replyAt) {
+      reply = message;
+      replyAt = at;
+    }
+  }
+  return reply !== undefined && replyAt >= userAt ? replyStatusOf(reply.text) : null;
+}
+
 export function threadShellFromProjection(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2ThreadShell {
@@ -1551,6 +1575,7 @@ export function threadShellFromProjection(
     // Thread detail owns message bodies. Keeping them out of shell rows makes
     // initial hydration and streaming updates independent of transcript size.
     latestVisibleMessage: null,
+    lastReplyStatus: newestReplyStatus(projection.messages),
     latestUserMessageAt: latestUserMessage?.updatedAt ?? null,
     latestUserAuthoredMessageAt:
       userMessages.find((message) => message.createdBy === "user")?.updatedAt ?? null,

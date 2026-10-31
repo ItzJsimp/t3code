@@ -39,6 +39,11 @@ function splitStatusBar(body: string): { body: string; status?: DockStatus } {
   return { status, body: text.slice(firstLine.length).trim() };
 }
 
+/** State from the status bar on the first line of a reply, or null when it has none. */
+export function replyStatusOf(text: string): DockStatus["state"] | null {
+  return splitStatusBar(text).status?.state ?? null;
+}
+
 function fencedLineIndexes(lines: string[]) {
   const excluded = new Set<number>();
   let fence: { char: string; length: number } | null = null;

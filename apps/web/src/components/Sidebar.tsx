@@ -209,6 +209,7 @@ import {
   resolveSidebarThreadSection,
   resolveSidebarRowAccessibility,
   type SidebarDropVerb,
+  resolveReplyStatusMark,
   resolveSidebarThreadStatus,
   floatThreadsNeedingUser,
   sidebarThreadNeedsUser,
@@ -731,6 +732,20 @@ function SortableThreadRow(props: {
 
 // Unsent work shares one look: the new-thread draft rows and thread rows
 // with unsent composer text both use this tint and pen so they read alike.
+/** The old emoji slot: a green check when the last reply is Done, an amber dot for Need you. */
+function ReplyStatusMark({ mark }: { mark: "done" | "need-you" | null }) {
+  if (mark === null) return null;
+  return mark === "done" ? (
+    <CheckIcon aria-label="Done" role="img" className="mr-1.5 inline size-3 text-success" />
+  ) : (
+    <span
+      aria-label="Needs you"
+      role="img"
+      className="mr-1.5 inline-block size-1.5 rounded-full bg-warning align-middle"
+    />
+  );
+}
+
 const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
 const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
 
@@ -1804,6 +1819,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           isRegeneratingTitle && "opacity-55",
         )}
       >
+        <ReplyStatusMark mark={resolveReplyStatusMark(status, thread.lastReplyStatus)} />
         {thread.title}
       </span>
     );
@@ -2566,6 +2582,12 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
                   thread.titleRegeneration != null && "opacity-55",
                 )}
               >
+                <ReplyStatusMark
+                  mark={resolveReplyStatusMark(
+                    resolveSidebarThreadStatus(thread),
+                    thread.lastReplyStatus,
+                  )}
+                />
                 {thread.title}
               </span>
               <span id={`${props.resultId}-pr`} className="contents">
