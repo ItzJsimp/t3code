@@ -643,6 +643,13 @@ export const ClientSettingsSchema = Schema.Struct({
   snapShotFlash: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // Global dictation triggers. A blank key means the platform default.
+  dictationToggleKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  dictationHoldKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  dictationMouseKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  dictationMode: Schema.Literals(["toggle", "hold"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("toggle" as const)),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -2046,6 +2053,10 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotSound: Schema.optionalKey(SnapShotSound),
   snapShotFlash: Schema.optionalKey(Schema.Boolean),
   snapShotAnimations: Schema.optionalKey(Schema.Boolean),
+  dictationToggleKey: Schema.optionalKey(Schema.String),
+  dictationHoldKey: Schema.optionalKey(Schema.String),
+  dictationMouseKey: Schema.optionalKey(Schema.String),
+  dictationMode: Schema.optionalKey(Schema.Literals(["toggle", "hold"])),
   wordWrap: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

@@ -4,6 +4,7 @@ import {
   DISCORD_MUTE_KEY,
   defaultDictationTriggers,
   findTriggerConflict,
+  resolveDictationTriggers,
   idleDictationTrigger,
   stepDictationTrigger,
   type DictationTriggerEvent,
@@ -103,5 +104,28 @@ describe("findTriggerConflict", () => {
     expect(
       findTriggerConflict({ toggle: DISCORD_MUTE_KEY, hold: "Ctrl+Win", mouse: "Mouse4" }),
     ).toBe("toggle");
+  });
+});
+
+describe("resolveDictationTriggers", () => {
+  it("fills every blank trigger with the platform default", () => {
+    expect(resolveDictationTriggers("win32", { toggle: "", hold: "", mouse: "" })).toEqual(
+      defaultDictationTriggers("win32"),
+    );
+  });
+
+  it("keeps a recorded trigger and defaults the rest", () => {
+    expect(
+      resolveDictationTriggers("win32", { toggle: "Ctrl+Alt+D", hold: " ", mouse: "" }),
+    ).toEqual({
+      toggle: "Ctrl+Alt+D",
+      hold: "Ctrl+Win",
+      mouse: "Mouse4",
+    });
+  });
+
+  it("falls back to all defaults when the saved set conflicts", () => {
+    const saved = { toggle: "Ctrl+Win", hold: "Win+Ctrl", mouse: "" };
+    expect(resolveDictationTriggers("win32", saved)).toEqual(defaultDictationTriggers("win32"));
   });
 });

@@ -78,3 +78,20 @@ export function findTriggerConflict(triggers: DictationTriggers): DictationTrigg
   }
   return undefined;
 }
+
+/**
+ * The triggers to run: each blank saved value takes the platform default. A saved set that
+ * repeats a key or uses the Discord key is ignored whole, so a bad file cannot disable dictation.
+ */
+export function resolveDictationTriggers(
+  platform: string,
+  saved: Readonly<Record<DictationTriggerName, string>>,
+): DictationTriggers {
+  const defaults = defaultDictationTriggers(platform);
+  const merged = {
+    toggle: saved.toggle.trim() || defaults.toggle,
+    hold: saved.hold.trim() || defaults.hold,
+    mouse: saved.mouse.trim() || defaults.mouse,
+  };
+  return findTriggerConflict(merged) === undefined ? merged : defaults;
+}
