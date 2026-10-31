@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { APP_VERSION_LABEL } from "~/branding";
+import { openReleaseHistoryDialog } from "~/components/desktop/ReleaseHistoryDialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { WorkspaceSwitcher } from "~/components/workspace/WorkspaceSwitcher";
 import { useActiveAiosWorkspace } from "~/components/workspace/useActiveAiosWorkspace";
@@ -140,6 +142,16 @@ export function AppRail({ expanded = false }: { readonly expanded?: boolean }) {
       >
         {bottom.map(renderItem)}
       </div>
+      {expanded ? (
+        // The drawer is the phone's only menu, so the version lives here. Tap for what changed.
+        <button
+          type="button"
+          onClick={openReleaseHistoryDialog}
+          className="mt-1 h-11 rounded-md px-2.5 text-left text-xs text-muted-foreground tabular-nums outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
+        >
+          Leonidas v{APP_VERSION_LABEL} · what changed
+        </button>
+      ) : null}
     </nav>
   );
 }
