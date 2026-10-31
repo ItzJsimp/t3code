@@ -1,8 +1,14 @@
-import { ClientSettingsSchema } from "@t3tools/contracts";
+import { ClientSettingsSchema, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import {
+  dictationConfigFromSettings,
+  reconfigureDictationHotkey,
+  sameDictationConfig,
+} from "../../dictationHotkey/DictationHotkey.ts";
+import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import * as DesktopSnapShot from "../../snapShot/DesktopSnapShot.ts";
 import * as IpcChannels from "../channels.ts";
@@ -25,7 +31,17 @@ export const setClientSettings = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.clientSettings.set")(function* (settings) {
     const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
     const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
+    const { platform } = yield* DesktopEnvironment.DesktopEnvironment;
+    const before = dictationConfigFromSettings(
+      platform,
+      Option.getOrElse(yield* clientSettings.get, () => DEFAULT_CLIENT_SETTINGS),
+    );
     yield* clientSettings.set(settings);
     yield* snapShot.configure(settings);
+    const after = dictationConfigFromSettings(platform, settings);
+    // Any other setting must not end a dictation that is running.
+    if (!sameDictationConfig(before, after)) {
+      yield* reconfigureDictationHotkey(after.triggers, after.mode);
+    }
   }),
 });

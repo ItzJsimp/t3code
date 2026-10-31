@@ -5,9 +5,9 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
-import type { DesktopServerExposureMode } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS, type DesktopServerExposureMode } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
-import { defaultDictationTriggers } from "@t3tools/shared/dictationTrigger";
+import { resolveDictationTriggers } from "@t3tools/shared/dictationTrigger";
 import * as Crypto from "effect/Crypto";
 import * as Electron from "electron";
 import { CAPTURE_MENU_ACTION, registerCaptureHotkey } from "../capture/DesktopCaptureHotkey.ts";
@@ -38,6 +38,7 @@ import * as DesktopState from "./DesktopState.ts";
 import * as DesktopRemoteUpdates from "../updates/DesktopRemoteUpdates.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopSnapShot from "../snapShot/DesktopSnapShot.ts";
+import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as DesktopWslBackend from "../wsl/DesktopWslBackend.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -183,6 +184,7 @@ const bootstrap = Effect.gen(function* () {
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
+  const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const appActivation = yield* DesktopAppActivation.DesktopAppActivation;
   yield* logBootstrapInfo("bootstrap start");
 
@@ -219,9 +221,13 @@ const bootstrap = Effect.gen(function* () {
   if (environment.platform === "win32") {
     yield* Effect.gen(function* () {
       const helper = yield* DictationHotkey.spawnWindowsInputHook(yield* HostProcess.Environment);
+      // A missing or unreadable settings file means the defaults.
+      const saved = yield* clientSettings.get.pipe(Effect.orElseSucceed(() => Option.none()));
       yield* DictationHotkey.runDictationHotkey(helper, {
-        triggers: defaultDictationTriggers("win32"),
-        mode: "toggle",
+        ...DictationHotkey.dictationConfigFromSettings(
+          "win32",
+          Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS),
+        ),
         onAction: (action) =>
           desktopWindow
             .dispatchMenuAction(DictationHotkey.DICTATION_MENU_ACTIONS[action])

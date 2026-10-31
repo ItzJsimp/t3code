@@ -2,7 +2,12 @@ import { defaultDictationTriggers } from "@t3tools/shared/dictationTrigger";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 
-import { endActiveDictation, parseHookLine, runDictationHotkey } from "./DictationHotkey.ts";
+import {
+  endActiveDictation,
+  parseHookLine,
+  reconfigureDictationHotkey,
+  runDictationHotkey,
+} from "./DictationHotkey.ts";
 
 const drive = Effect.fn(function* (lines: string[], mode: "toggle" | "hold" = "toggle") {
   const sent: string[] = [];
@@ -87,6 +92,42 @@ describe("runDictationHotkey", () => {
       yield* Fiber.interrupt(run);
       expect(actions).toEqual(["start", "start"]);
       expect(sent.slice(1, 4)).toEqual(["mute down", "mute up", "mute down"]);
+    }),
+  );
+});
+
+describe("reconfigureDictationHotkey", () => {
+  it.effect("sends the new triggers and applies the new mode without a restart", () =>
+    Effect.gen(function* () {
+      const lines = yield* Queue.unbounded<string>();
+      const sent: string[] = [];
+      const actions: string[] = [];
+      const run = yield* runDictationHotkey(
+        { lines: Stream.fromQueue(lines), send: (line) => Effect.sync(() => void sent.push(line)) },
+        {
+          triggers: defaultDictationTriggers("win32"),
+          mode: "toggle",
+          onAction: (action) => Effect.sync(() => void actions.push(action)),
+        },
+      ).pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* reconfigureDictationHotkey(
+        { toggle: "Ctrl+Alt+D", hold: "Ctrl+Win", mouse: "Mouse5" },
+        "hold",
+      );
+      expect(sent.at(-1)).toBe("config Ctrl+Alt+D|Ctrl+Win|Mouse5");
+      // In hold mode the mouse button dictates only while it is down.
+      yield* Queue.offer(lines, "down mouse");
+      yield* Queue.offer(lines, "up mouse");
+      yield* Effect.yieldNow;
+      yield* Fiber.interrupt(run);
+      expect(actions).toEqual(["start", "stop"]);
+    }),
+  );
+
+  it.effect("does nothing when the hook is not running", () =>
+    Effect.gen(function* () {
+      yield* reconfigureDictationHotkey(defaultDictationTriggers("win32"), "toggle");
     }),
   );
 });

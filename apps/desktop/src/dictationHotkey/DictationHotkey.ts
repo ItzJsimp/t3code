@@ -1,5 +1,7 @@
+import type { ClientSettings } from "@t3tools/contracts";
 import {
   idleDictationTrigger,
+  resolveDictationTriggers,
   stepDictationTrigger,
   type DictationTriggerAction,
   type DictationTriggerEvent,
@@ -33,6 +35,45 @@ let endActive: Effect.Effect<void> = Effect.void;
 /** The renderer finished (or failed) a dictation: reset the trigger and release F24 now. */
 export const endActiveDictation = Effect.suspend(() => endActive);
 
+let applyConfig: (
+  triggers: DictationTriggers,
+  mode: DictationTriggerMode,
+) => Effect.Effect<void> = () => Effect.void;
+
+/** New triggers or mode from settings, applied to the running hook with no restart. */
+export const reconfigureDictationHotkey = (
+  triggers: DictationTriggers,
+  mode: DictationTriggerMode,
+) => Effect.suspend(() => applyConfig(triggers, mode));
+
+/** The triggers and mode to run for the saved client settings (blank values mean the defaults). */
+export const dictationConfigFromSettings = (
+  platform: string,
+  settings: Pick<
+    ClientSettings,
+    "dictationToggleKey" | "dictationHoldKey" | "dictationMouseKey" | "dictationMode"
+  >,
+) => ({
+  triggers: resolveDictationTriggers(platform, {
+    toggle: settings.dictationToggleKey,
+    hold: settings.dictationHoldKey,
+    mouse: settings.dictationMouseKey,
+  }),
+  mode: settings.dictationMode,
+});
+
+export const sameDictationConfig = (
+  a: ReturnType<typeof dictationConfigFromSettings>,
+  b: ReturnType<typeof dictationConfigFromSettings>,
+) =>
+  a.mode === b.mode &&
+  a.triggers.toggle === b.triggers.toggle &&
+  a.triggers.hold === b.triggers.hold &&
+  a.triggers.mouse === b.triggers.mouse;
+
+const configLine = (triggers: DictationTriggers) =>
+  `config ${triggers.toggle}|${triggers.hold}|${triggers.mouse}`;
+
 export function parseHookLine(line: string): DictationTriggerEvent | undefined {
   if (line === "other") return { type: "other" };
   const [type, trigger] = line.split(" ");
@@ -57,15 +98,19 @@ export const runDictationHotkey = Effect.fn("DictationHotkey.run")(function* (
     readonly onAction: (action: DictationTriggerAction) => Effect.Effect<void>;
   },
 ) {
-  yield* helper.send(
-    `config ${options.triggers.toggle}|${options.triggers.hold}|${options.triggers.mouse}`,
-  );
+  yield* helper.send(configLine(options.triggers));
   let state: DictationTriggerState = idleDictationTrigger;
+  let mode = options.mode;
   endActive = Effect.suspend(() => {
     if (state.kind === "idle") return Effect.void;
     state = idleDictationTrigger;
     return helper.send("mute up");
   });
+  applyConfig = (triggers, nextMode) => {
+    mode = nextMode;
+    // A held trigger from the old set would never see its release, so end that dictation first.
+    return endActive.pipe(Effect.andThen(helper.send(configLine(triggers))));
+  };
   yield* helper.lines.pipe(
     Stream.runForEach((line) => {
       const event = parseHookLine(line.trim());
@@ -74,7 +119,7 @@ export const runDictationHotkey = Effect.fn("DictationHotkey.run")(function* (
           ? Effect.logWarning(`dictation hook: ${line}`)
           : Effect.void;
       }
-      const next = stepDictationTrigger(state, event, options.mode);
+      const next = stepDictationTrigger(state, event, mode);
       state = next.state;
       const action = next.action;
       if (!action) return Effect.void;
@@ -85,6 +130,7 @@ export const runDictationHotkey = Effect.fn("DictationHotkey.run")(function* (
     Effect.ensuring(
       Effect.sync(() => {
         endActive = Effect.void;
+        applyConfig = () => Effect.void;
       }).pipe(Effect.andThen(helper.send("mute up"))),
     ),
   );
