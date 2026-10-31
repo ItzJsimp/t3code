@@ -47,8 +47,10 @@ export async function generateLocalThreadTitle(input: {
     if (!parsed || typeof parsed.title !== "string" || parsed.needsRefinement === true) {
       return null;
     }
+    // The sanitizer cuts long titles, so judge the raw length: a rambling local model goes to the cloud.
+    if (parsed.title.trim().length > MAX_LOCAL_TITLE_LENGTH) return null;
     const title = sanitizeThreadTitle(parsed.title);
-    return title === "New thread" || title.length > MAX_LOCAL_TITLE_LENGTH ? null : title;
+    return title === "New thread" ? null : title;
   } catch {
     return null;
   }

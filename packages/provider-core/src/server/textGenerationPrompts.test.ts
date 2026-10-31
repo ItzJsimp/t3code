@@ -341,22 +341,32 @@ describe("sanitizeThreadTitle", () => {
       sanitizeThreadTitle(
         '{"title": "Reconnect failures after restart because the session state does not recover"}',
       ),
-    ).toBe("Reconnect failures after restart because the session state does not recover");
+    ).toBe("Reconnect failures after restart");
   });
 
-  it("keeps complete titles for client display truncation", () => {
+  it("cuts a long title to 5 words", () => {
     expect(
       sanitizeThreadTitle(
         '  "Reconnect failures after restart because the session state does not recover"  ',
       ),
-    ).toBe("Reconnect failures after restart because the session state does not recover");
+    ).toBe("Reconnect failures after restart");
+  });
+
+  it("cuts at a word break so the title has at most 35 characters", () => {
+    const title = sanitizeThreadTitle("Internationalization infrastructure modernization plan");
+    expect(title).toBe("Internationalization infrastructure");
+    expect(title.length).toBeLessThanOrEqual(35);
+  });
+
+  it("hard cuts a single word longer than 35 characters", () => {
+    expect(sanitizeThreadTitle("x".repeat(60))).toBe("x".repeat(35));
   });
 
   it("caps runaway titles so a paragraph cannot reach the sidebar", () => {
     const words = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ");
     const title = sanitizeThreadTitle(words);
-    expect(title.length).toBeLessThanOrEqual(120);
-    expect(title.endsWith("...")).toBe(true);
+    expect(title.length).toBeLessThanOrEqual(35);
+    expect(title.split(" ").length).toBeLessThanOrEqual(5);
   });
 });
 

@@ -52,11 +52,11 @@ export function sanitizePrTitle(raw: string): string {
   return "Update project changes";
 }
 
-// Prompts ask for under 40 characters. This cap only stops a runaway model
-// from pushing a paragraph into the sidebar, header, and window title.
-const MAX_THREAD_TITLE_CHARS = 120;
+// Chat names are 3 to 5 words and at most 35 characters. The prompts ask for it; this enforces it.
+const MAX_THREAD_TITLE_CHARS = 35;
+const MAX_THREAD_TITLE_WORDS = 5;
 
-/** Normalise a raw thread title to a single line. Clients truncate for display. */
+/** Normalise a raw thread title to a single line of at most 5 words and 35 characters. */
 export function sanitizeThreadTitle(raw: string): string {
   // Unwrap a JSON-formatted title before truncation can cut off the closing brace.
   const decoded = decodeJsonThreadTitle(raw);
@@ -73,11 +73,10 @@ export function sanitizeThreadTitle(raw: string): string {
     return "New thread";
   }
 
-  if (normalized.length <= MAX_THREAD_TITLE_CHARS) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, MAX_THREAD_TITLE_CHARS - 3).trimEnd()}...`;
+  // Whole words only: keep up to 5 words, then drop trailing words until 35 characters fit.
+  const kept = normalized.split(" ").slice(0, MAX_THREAD_TITLE_WORDS);
+  while (kept.length > 1 && kept.join(" ").length > MAX_THREAD_TITLE_CHARS) kept.pop();
+  return kept.join(" ").slice(0, MAX_THREAD_TITLE_CHARS).trimEnd();
 }
 
 /** CLI name to human-readable label, e.g. "codex" → "Codex CLI (`codex`)" */

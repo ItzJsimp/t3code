@@ -252,7 +252,7 @@ Before answering, silently reduce the request to:
 Title the subject and outcome. Discard incidental instructions.
 
 Editorial rules:
-- 3-6 words, fewer than 40 characters.
+- 3-5 words, at most 35 characters.
 - Use sentence case, preserving product names and acronyms.
 - Put the specific subject early so it survives sidebar truncation.
 - Do not add emoji or status labels; the app supplies separate visual and live activity cues.
@@ -286,7 +286,7 @@ Pick the title in this order:
 4. Title the durable subject and outcome, not the workflow state. Research, plan, build, review, CI and merge steps do not change the subject.
 
 Editorial rules:
-- 3-6 words, fewer than 40 characters, sentence case, keep product names and acronyms.
+- 3-5 words, at most 35 characters, sentence case, keep product names and acronyms.
 - Put the specific subject first. Use a compact noun phrase or clear action phrase.
 - No emoji, status labels, project names, PR numbers, quotes, filler, or trailing punctuation.
 - Ignore deliverables and operations (mocks, plans, HTML, branches, PRs, tests, commits) and models, tools or output formats unless they are the topic.
