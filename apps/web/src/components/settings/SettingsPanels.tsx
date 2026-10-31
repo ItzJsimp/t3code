@@ -77,6 +77,7 @@ import * as Schema from "effect/Schema";
 import { APP_VERSION_LABEL, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
 import { IS_NIGHTLY_BUILD, NightlyMobileBetaRow } from "../NightlyMobileBeta";
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
+import { DictationTriggerSettings } from "./DictationTriggerSettings";
 import { VoiceSettingsRow } from "./VoiceSettingsRow";
 import { WallpaperSettings } from "./WallpaperSettings";
 import {
@@ -2739,6 +2740,7 @@ function SettingsPagePanel({ page }: { readonly page: SettingsPage }) {
           </SettingsSection>
           <SettingsSection id="voice" title="Voice">
             <VoiceSettingsRow />
+            <DictationTriggerSettings />
           </SettingsSection>
           <SettingsSection id="usage-sharing" title="Privacy">
             <UsageAnalyticsSettings />
