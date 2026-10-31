@@ -264,7 +264,7 @@ import {
   type SnoozePreset,
 } from "./Sidebar.snooze";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
-import { threadTopicGlyph, threadActivityLine } from "@t3tools/shared/threadIdentity";
+import { threadActivityLine } from "@t3tools/shared/threadIdentity";
 import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
@@ -1354,7 +1354,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const activityLine = threadActivityLine({ status, summary: thread.activitySummary });
   // The line can be hidden from view; screen readers still hear it.
   const visibleActivityLine = props.showActivityLine === false ? null : activityLine;
-  const topicGlyph = threadTopicGlyph(thread.title);
   const isInFlight =
     status === "working" || status === "waiting" || status === "approval" || status === "input";
   // A woken thread reappears at its original position (the sort is
@@ -1805,11 +1804,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           isRegeneratingTitle && "opacity-55",
         )}
       >
-        {topicGlyph ? (
-          <span aria-hidden className="mr-1.5">
-            {topicGlyph}
-          </span>
-        ) : null}
         {thread.title}
       </span>
     );
@@ -2572,11 +2566,6 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
                   thread.titleRegeneration != null && "opacity-55",
                 )}
               >
-                {threadTopicGlyph(thread.title) ? (
-                  <span aria-hidden className="mr-1.5">
-                    {threadTopicGlyph(thread.title)}
-                  </span>
-                ) : null}
                 {thread.title}
               </span>
               <span id={`${props.resultId}-pr`} className="contents">

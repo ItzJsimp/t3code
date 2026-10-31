@@ -1,15 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import { projectIdentityGlyph, threadActivityLine, threadTopicGlyph } from "./threadIdentity.ts";
+import { projectIdentityGlyph, threadActivityLine } from "./threadIdentity.ts";
 
 describe("chat identity", () => {
-  it("keeps existing emoji and assigns recognizable topic cues", () => {
-    expect(threadTopicGlyph("🎨 My custom name")).toBeNull();
-    expect(threadTopicGlyph("🇺🇸 Release")).toBeNull();
-    expect(threadTopicGlyph("1️⃣ Roadmap")).toBeNull();
-    expect(threadTopicGlyph("Fix account switching")).toBe("🔑");
-    expect(threadTopicGlyph("Improve response readability")).toBe("🎨");
-    expect(threadTopicGlyph("Discuss next steps")).toBe("💬");
-  });
   it("gives projects stable identities without needing an AI request", () => {
     expect(projectIdentityGlyph("Leonidas AIOS")).toBe("🧠");
     expect(projectIdentityGlyph("Scribe")).toBe("✍️");

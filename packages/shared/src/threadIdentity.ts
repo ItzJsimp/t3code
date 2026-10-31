@@ -1,25 +1,5 @@
 import type { OrchestrationV2ActivitySummary } from "@t3tools/contracts";
 
-const TASK_GLYPHS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\b(design|theme|layout|readability|sidebar|ui|ux)\b/i, "🎨"],
-  [/\b(auth|login|account|token|permission|security)\b/i, "🔑"],
-  [/\b(test|verify|verification|calibration)\b/i, "🧪"],
-  [/\b(bug|fix|repair|crash|error)\b/i, "🔧"],
-  [/\b(usage|analytics|context|history|metrics|dashboard)\b/i, "📊"],
-  [/\b(speed|performance|latency|optimize)\b/i, "⚡"],
-  [/\b(release|ship|deploy|publish|update)\b/i, "🚀"],
-  [/\b(review|audit|investigate|research)\b/i, "🔎"],
-  [/\b(docs|documentation|guide|readme)\b/i, "📚"],
-  [/\b(agent|model|routing|ai)\b/i, "🤖"],
-];
-
-/** Presentation only: never rewrites saved titles or duplicates an authored emoji. */
-export function threadTopicGlyph(title: string): string | null {
-  if (/^\s*(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)/u.test(title))
-    return null;
-  return TASK_GLYPHS.find(([pattern]) => pattern.test(title))?.[1] ?? "💬";
-}
-
 /** Stable visual fallback when a project has neither a favicon nor a chosen icon. */
 export function projectIdentityGlyph(title: string): string {
   if (/\b(aios|ai|agent|model)\b/i.test(title)) return "🧠";

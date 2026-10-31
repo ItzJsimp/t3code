@@ -218,7 +218,7 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import type { SidebarThreadSummary } from "../types";
-import { threadTopicGlyph, threadActivityLine } from "@t3tools/shared/threadIdentity";
+import { threadActivityLine } from "@t3tools/shared/threadIdentity";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import {
   buildPhysicalToLogicalProjectKeyMap,
@@ -825,14 +825,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     className="min-w-0 flex-1 text-sm"
                     data-testid={`thread-title-${thread.id}`}
                   >
-                    <span className="block truncate">
-                      {threadTopicGlyph(thread.title) ? (
-                        <span aria-hidden className="mr-1">
-                          {threadTopicGlyph(thread.title)}
-                        </span>
-                      ) : null}
-                      {thread.title}
-                    </span>
+                    <span className="block truncate">{thread.title}</span>
                     {activityLine ? (
                       <span className="flex min-w-0 gap-1 text-xs text-muted-foreground">
                         <span className="min-w-0 flex-1 truncate">{activityLine.text}</span>

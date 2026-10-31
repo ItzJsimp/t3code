@@ -40,7 +40,7 @@ import { useThreadPr } from "../../state/use-thread-pr";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
-import { threadTopicGlyph, threadActivityLine } from "@t3tools/shared/threadIdentity";
+import { threadActivityLine } from "@t3tools/shared/threadIdentity";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   resolveThreadListV2SnoozeGateExpiryMs,
@@ -629,7 +629,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const status = resolveThreadListV2Status(thread);
   const activityLine = threadActivityLine({ status, summary: thread.activitySummary });
-  const topicGlyph = threadTopicGlyph(thread.title);
   const accessibleRowLabel = [
     thread.title,
     props.hasQueuedMessages ? "waiting messages" : null,
@@ -1057,7 +1056,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         )}
         numberOfLines={2}
       >
-        {topicGlyph ? `${topicGlyph} ` : ""}
         {thread.title}
       </Text>
       {activityLine ? (
@@ -1322,7 +1320,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               )}
               numberOfLines={1}
             >
-              {topicGlyph ? `${topicGlyph} ` : ""}
               {thread.title}
             </Text>
             {props.searchMatch ? (
