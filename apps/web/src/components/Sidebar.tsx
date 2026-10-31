@@ -242,6 +242,7 @@ import {
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
+import { useRowTouchGestures } from "./Sidebar.touch";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import {
   ThreadPullRequestBadgeControl,
@@ -1514,6 +1515,40 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     />
   );
 
+  // Touch has no hover or right click: a long press opens the row menu and a
+  // left swipe archives (or unarchives) the chat.
+  const rowElementRef = useRef<HTMLElement | null>(null);
+  const setRowElement = useCallback(
+    (node: HTMLElement | null) => {
+      rowElementRef.current = node;
+      rowRef(node);
+    },
+    [rowRef],
+  );
+  const swipeRevealRef = useRef<HTMLDivElement>(null);
+  const touch = useRowTouchGestures({
+    rowRef: rowElementRef,
+    revealRef: swipeRevealRef,
+    canSwipe: canOperateThread && props.settlementSupported && variantAction !== "unsnooze",
+    onLongPress: (point) => onContextMenu(threadRef, point),
+    onSwipeCommit: () =>
+      variantAction === "unsettle" ? onUnsettle(threadRef) : onSettle(threadRef),
+  });
+  const swipeReveal = (
+    <div
+      ref={swipeRevealRef}
+      aria-hidden
+      className="pointer-events-none absolute inset-0 hidden items-center justify-end gap-1.5 rounded-md bg-primary/15 px-4 text-sm font-medium text-foreground"
+    >
+      {variantAction === "unsettle" ? (
+        <Undo2Icon className="size-4" />
+      ) : (
+        <ArchiveIcon className="size-4" />
+      )}
+      {variantAction === "unsettle" ? "Unarchive" : "Archive"}
+    </div>
+  );
+
   const handleClick = useCallback(
     (event: ReactMouseEvent) => {
       onThreadClick(event, threadRef);
@@ -1532,9 +1567,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const handleContextMenu = useCallback(
     (event: ReactMouseEvent) => {
       event.preventDefault();
+      // Android fires this for the long press the touch gesture already handled.
+      if (touch.gesture.openedMenuWithin(1000)) return;
       onContextMenu(threadRef, { x: event.clientX, y: event.clientY });
     },
-    [onContextMenu, threadRef],
+    [onContextMenu, threadRef, touch.gesture],
   );
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
@@ -1702,7 +1739,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // a useful hierarchy nor a reliable hover cue. Status now lives in the row
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
-    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none touch-pan-y focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
     variantAction === "unsettle" &&
       !props.isActive &&
       "[&:not(:hover):not(:focus-within)_*]:text-secondary-label",
@@ -1925,15 +1962,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         {...(fileDropHandlers ?? {})}
         className={cn(
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
-          "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
-          sortable?.isDragging && "relative z-20",
+          "relative list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
+          sortable?.isDragging && "z-20",
         )}
       >
+        {swipeReveal}
         <Tooltip disabled={sortable?.isDragging}>
           <TooltipTrigger
             render={
               <div
-                ref={rowRef}
+                ref={setRowElement}
                 role="button"
                 tabIndex={0}
                 aria-label={
@@ -1945,6 +1983,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
+                {...touch.handlers}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onKeyDown={handleKeyDown}
@@ -2104,20 +2143,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        "list-none py-0.5 [content-visibility:auto]",
+        "relative list-none py-0.5 [content-visibility:auto]",
         visibleActivityLine
           ? "[contain-intrinsic-size:auto_100px]"
           : metaLineEmpty
             ? "[contain-intrinsic-size:auto_58px]"
             : "[contain-intrinsic-size:auto_78px]",
-        sortable?.isDragging && "relative z-20",
+        sortable?.isDragging && "z-20",
       )}
     >
+      {swipeReveal}
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
         <TooltipTrigger
           render={
             <div
-              ref={rowRef}
+              ref={setRowElement}
               role="button"
               tabIndex={0}
               aria-label={
@@ -2129,6 +2169,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
+              {...touch.handlers}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}

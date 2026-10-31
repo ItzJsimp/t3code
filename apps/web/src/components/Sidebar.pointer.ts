@@ -24,8 +24,9 @@ export class SidebarPointerSensor {
   static activators = [
     {
       eventName: "onPointerDown" as const,
+      // Touch scrolls, swipes and long-presses rows instead, see Sidebar.touch.ts.
       handler: ({ nativeEvent }: ReactPointerEvent) =>
-        nativeEvent.isPrimary && nativeEvent.button === 0,
+        nativeEvent.isPrimary && nativeEvent.button === 0 && nativeEvent.pointerType !== "touch",
     },
   ];
   autoScrollEnabled = true;
