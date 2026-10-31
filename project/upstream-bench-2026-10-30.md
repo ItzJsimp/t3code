@@ -101,3 +101,27 @@ Changes (branch `upstream-port/2026-10-30`, commit `963c9455dc`, not pushed):
 - **Noise:** single runs range from 0.85 s to 2.8 s. The machine was busier in this pass than in the first (base 1.32 s here, 1.11 s before). Compare medians within one pass only.
 - **What remains:** a serial chain of small git calls (about 100 ms to start, then branch lookups, then the 280 ms listing and the 80 ms diff), plus two `config` calls after the totals. A trace shows a 170 ms gap before `remote get-url` that I did not explain. Further speed needs the Changes totals to start earlier or be cached per folder. That is a design change, not a port.
 - **Checks:** server `tsc` 0 errors; `src/vcs`, `src/sourceControl` and `src/git` tests pass (510).
+
+## Step 3: the Changes totals start beside status, and a taskkill cost (2026-10-31)
+
+**Cause of the "170 ms gap".** On Windows, the Effect process spawner runs `taskkill /pid /T /F` when a child exits with a non-zero code. It does this in an exit handler and again in the scope cleanup, and the cleanup waits for `taskkill.exe` to finish. This costs about 150 to 230 ms in the calling fiber. Source: `@effect/platform-node-shared` `NodeChildProcessSpawner.js`, lines 398 and 411. `taskkill` starts through `execFile`, so the spawn logger in `spawn-preload.mjs` does not show it.
+
+- The status path had two such exits. `git config --get branch.<b>.gh-merge-base` and `git config --get branch.<b>.remote` both exit 1 when the key is unset (the normal case).
+- Proof: the exit code column of `git-trace.mjs` (`x1`) lined up with every gap. After the fix all 18 processes exit 0 and the gaps are gone.
+
+**Changes** (branch `upstream-port/2026-10-30`):
+
+- **Early totals:** the Changes totals chain (`config`, `remote get-url`, `show-ref`, `merge-base`, then the diff) now starts together with `status`, using a fresh `symbolic-ref --short HEAD`. It does not use the cached repository paths, because they keep the old branch for 10 minutes after a checkout. The result is used only when `status` names the same branch. Otherwise the old path runs. Test: `Changes totals follow a checkout made between two status reads`. It fails when both guards are removed.
+- **Config reads:** `git config --get --default ""` for `gh-merge-base` and for `readConfigValue`. An unset key now exits 0 with empty output. `readConfigValue` already maps empty output to `null`. Needs Git 2.18 or newer (2018). On an older Git the option is unknown, the call exits non-zero, and the value reads as unset.
+
+| First local status of a new folder, through the server   | Result                                           |
+| -------------------------------------------------------- | ------------------------------------------------ |
+| Early totals, 3 alternating pairs, 18 runs each (ms)     | 991 to 838 median (15.5 percent)                 |
+| Step 2 against early totals, one pass, 18 runs (ms)      | 1,331 to 937 median (29.6 percent), machine busy |
+| Early totals against early plus config fix, 5 pairs (ms) | 1,175 to 831 median. Quiet pair: 835 to 721      |
+| Processes with a non-zero exit in one status             | 2 to 0                                           |
+
+- **Noise:** this machine was busy (raw `git status` was 105 to 395 ms in the same pass; one run took 3.9 s). Single runs vary by up to 40 percent. The mechanism is certain (the trace), the size of the gain is not. Treat 150 to 300 ms as the range.
+- **Not reached:** the target of 300 ms. A first status still takes about 700 to 800 ms in quiet pairs.
+- **What remains in the critical path:** repository detection before `status` starts (5 serial small `rev-parse` and `symbolic-ref` calls, about 150 to 210 ms), then `status` itself (about 190 to 330 ms), then the `ls-files --others` scan (about 280 ms, 0 bytes of output in the test folders), then the totals diff (about 85 ms).
+- **Wider finding, not fixed:** every git call that exits non-zero on Windows pays the same `taskkill` cost. That includes `show-ref --verify` on a missing remote branch, `remote get-url` with no `origin`, `symbolic-ref` on a detached HEAD and `rev-parse --verify`. A repository with no `origin` or no upstream hits more of them. A general fix is a pnpm patch of `@effect/platform-node-shared` (skip the kill when the child already exited). That touches the lockfile and every child process in the server, so it needs Jake's decision.
