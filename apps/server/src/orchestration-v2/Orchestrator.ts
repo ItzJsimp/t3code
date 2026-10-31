@@ -3341,6 +3341,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ? {
                 ...thread,
                 ...(command.title === undefined ? {} : { title: command.title }),
+                titleFailed: command.failed === true,
                 titleRegeneration: null,
                 updatedAt: now,
               }
@@ -4854,6 +4855,36 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           pendingThreadTitleGenerationEffect(command.commandId, command.threadId, {
             type: "initial",
             messageId: command.messageId,
+          }),
+        ]);
+        projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+      } else if (
+        !isNativeMaintenanceCommand(command) &&
+        command.createdBy === "user" &&
+        projection.thread.titleFailed === true &&
+        projection.thread.titleRegeneration == null
+      ) {
+        // The first title ran out of retries; this message gives the model more to name.
+        const now = yield* DateTime.now;
+        const thread: OrchestrationV2AppThread = {
+          ...projection.thread,
+          titleRegeneration: { requestId: command.commandId, startedAt: now },
+          updatedAt: now,
+        };
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: command.threadId,
+          providerInstanceId: thread.providerInstanceId,
+          occurredAt: now,
+          payload: thread,
+        });
+        yield* Ref.update(effects, (existing) => [
+          ...existing,
+          pendingThreadTitleGenerationEffect(command.commandId, command.threadId, {
+            type: "regenerate",
           }),
         ]);
         projection = yield* getProjectionWithPendingEvents(command.threadId, events);

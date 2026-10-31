@@ -606,6 +606,40 @@ it.effect.each(["success", "exhausted", "stale", "interrupted"] as const)(
         if (outcome === "interrupted")
           assert.equal(projection.thread.titleRegeneration?.requestId, requestId);
         else assert.isNotOk(projection.thread.titleRegeneration);
+        // Only a title that ran out of retries is marked, so the next message tries again.
+        assert.equal(projection.thread.titleFailed === true, outcome === "exhausted");
       }).pipe(Effect.provide(harness.layer));
     }),
+);
+
+it.effect("arms a new title request when a message arrives after a failed title", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      generateTitle: () =>
+        Effect.fail(new TextGenerationError({ operation: "generateThreadTitle", detail: "down" })),
+    });
+    yield* Effect.gen(function* () {
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const service = yield* ThreadTitleRegeneration.ThreadTitleRegenerationService;
+      const threadId = yield* createThread({ command: "retry:create", thread: "thread:retry" });
+      yield* dispatchUserMessage({ command: "retry:first", threadId, text: "Fix the title" });
+      const requestId = yield* armRegeneration({ command: "retry:title", threadId });
+      const fiber = yield* service
+        .execute({
+          threadId,
+          requestId,
+          kind: { type: "initial", messageId: MessageId.make("retry:first:message") },
+        })
+        .pipe(Effect.forkChild);
+      yield* TestClock.adjust("10 seconds");
+      yield* Fiber.join(fiber);
+      const failed = yield* threads.getThreadProjection(threadId);
+      assert.isTrue(failed.thread.titleFailed === true);
+      assert.isNotOk(failed.thread.titleRegeneration);
+
+      yield* dispatchUserMessage({ command: "retry:second", threadId, text: "Another question" });
+      const retried = yield* threads.getThreadProjection(threadId);
+      assert.equal(retried.thread.titleRegeneration?.requestId, "retry:second");
+    }).pipe(Effect.provide(harness.layer));
+  }),
 );

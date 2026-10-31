@@ -441,6 +441,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   attachedSubagent: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Reply style slug chosen for this chat; null or absent uses the project choice. */
   replyStyle: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** The first title ran out of retries; the next message asks for a new one. */
+  titleFailed: Schema.optional(Schema.Boolean),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -2077,6 +2079,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   attachedSubagent: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Reply style slug chosen for this chat; null or absent uses the project choice. */
   replyStyle: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** The first title ran out of retries; the next message asks for a new one. */
+  titleFailed: Schema.optional(Schema.Boolean),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -2980,6 +2984,8 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     requestId: CommandId,
     title: Schema.optional(TrimmedNonEmptyString),
+    /** The generation ran out of retries and left the old title. */
+    failed: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.runtime-mode.set"),
