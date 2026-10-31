@@ -34,8 +34,9 @@ Run all commands from the repo root, with explicit paths. Measured on 2026-10-16
 
 ## Exceptions
 
-| Rule                | Exception                                                              | Owner | Expires    |
-| ------------------- | ---------------------------------------------------------------------- | ----- | ---------- |
-| Lint and test floor | The two baseline failures above, until the owner commits that work     | Jake  | 2026-10-23 |
-| Server typecheck    | Old errors in `aiosDetect.test.ts`, `relativeImportExtensions.test.ts` | Jake  | 2026-11-16 |
-| Coverage            | Only one module has a baseline; add others when you change them        | Jake  | 2026-11-16 |
+| Rule                          | Exception                                                                                                                   | Owner | Expires    |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----- | ---------- |
+| Lint and test floor           | The two baseline failures above, until the owner commits that work                                                          | Jake  | 2026-10-23 |
+| Server typecheck              | Old errors in `aiosDetect.test.ts`, `relativeImportExtensions.test.ts`                                                      | Jake  | 2026-11-16 |
+| Coverage                      | Only one module has a baseline; add others when you change them                                                             | Jake  | 2026-11-16 |
+| Unused files and dependencies | [Existing shared-browser release baseline](docs/operations/shared-browser-audit-exception.md) only; no new findings allowed | Jake  | 2026-11-01 |

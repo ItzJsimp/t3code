@@ -1,6 +1,7 @@
 import { defineSlots } from "../twoState/slots";
 import { GoalsWidget, RecentActivityWidget } from "./ActivityWidgets";
 import { NeedsYouWidget, RunningWidget, UpNextWidget } from "./ActionWidgets";
+import { ReleaseStatusWidget } from "./ReleaseStatusWidget";
 import { DonePerDayWidget, MemoryWidget, OpenTasksWidget, PrioritiesWidget } from "./NumberWidgets";
 
 /**
@@ -18,5 +19,6 @@ export const slots = defineSlots({
     { id: "cc-done-per-day", order: 17, widget: true, Component: DonePerDayWidget },
     { id: "cc-recent-activity", order: 18, widget: true, Component: RecentActivityWidget },
     { id: "cc-goals", order: 19, widget: true, Component: GoalsWidget },
+    { id: "cc-release-status", order: 20, widget: true, Component: ReleaseStatusWidget },
   ],
 });

@@ -23,6 +23,15 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("shared browser access", () => {
+  it("starts disconnected and round-trips the environment opt-in", () => {
+    expect(decodeServerSettings({}).enableSharedBrowser).toBe(false);
+    const input = { enableSharedBrowser: true };
+    expect(decodeServerSettingsPatch(input)).toEqual(input);
+    expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+  });
+});
+
 describe("ServerSettings prompt prediction costs", () => {
   it("defaults to history-only prediction without a cloud model", () => {
     const settings = decodeServerSettings({});

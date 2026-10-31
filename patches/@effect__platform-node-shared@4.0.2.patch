@@ -1,0 +1,48 @@
+diff --git a/dist/NodeChildProcessSpawner.js b/dist/NodeChildProcessSpawner.js
+index b3e4deaa75124184262437280a97bad2b9e07c9d..905e32ef642d0e7b386a0299d70352cb4d5560f3 100644
+--- a/dist/NodeChildProcessSpawner.js
++++ b/dist/NodeChildProcessSpawner.js
+@@ -395,7 +395,8 @@ const make = /*#__PURE__*/Effect.gen(function* () {
+             const exited = yield* Deferred.isDone(exitSignal);
+             if (exited) {
+               const [code] = yield* Deferred.await(exitSignal);
+-              if (code !== 0 && Predicate.isNotNull(code)) {
++              // Windows: the leader already exited, so taskkill by pid finds nothing. Waiting for it costs about 170 ms.
++              if (code !== 0 && Predicate.isNotNull(code) && globalThis.process.platform !== "win32") {
+                 yield* Effect.ignore(terminateProcessGroup(cmd, childProcess, exitSignal, cmd.options));
+               } else if (isReferenced && process.platform !== "win32" && cmd.options.detached !== false) {
+                 yield* Effect.ignore(terminateProcessGroup(cmd, childProcess, exitSignal, cmd.options));
+@@ -409,7 +410,8 @@ const make = /*#__PURE__*/Effect.gen(function* () {
+           }));
+           const pid = ProcessId(childProcess.pid);
+           childProcess.on("exit", code => {
+-            if (code !== 0 && Predicate.isNotNull(code)) {
++            // Windows: the leader already exited, so taskkill by pid finds nothing. Waiting for it costs about 170 ms.
++            if (code !== 0 && Predicate.isNotNull(code) && globalThis.process.platform !== "win32") {
+               killProcessGroupOnExit(childProcess, cmd.options.killSignal ?? "SIGTERM");
+             }
+           });
+diff --git a/src/NodeChildProcessSpawner.ts b/src/NodeChildProcessSpawner.ts
+index f15aa85d65f52c3f79e7a78403897c9c32eaa521..8f5bad29ee9e9a32468c098d06d847353c70fa61 100644
+--- a/src/NodeChildProcessSpawner.ts
++++ b/src/NodeChildProcessSpawner.ts
+@@ -547,7 +547,8 @@ const make = Effect.gen(function*() {
+             const exited = yield* Deferred.isDone(exitSignal)
+             if (exited) {
+               const [code] = yield* Deferred.await(exitSignal)
+-              if (code !== 0 && Predicate.isNotNull(code)) {
++              // Windows: the leader already exited, so taskkill by pid finds nothing. Waiting for it costs about 170 ms.
++              if (code !== 0 && Predicate.isNotNull(code) && globalThis.process.platform !== "win32") {
+                 yield* Effect.ignore(terminateProcessGroup(cmd, childProcess, exitSignal, cmd.options))
+               } else if (isReferenced && process.platform !== "win32" && cmd.options.detached !== false) {
+                 yield* Effect.ignore(terminateProcessGroup(cmd, childProcess, exitSignal, cmd.options))
+@@ -563,7 +564,8 @@ const make = Effect.gen(function*() {
+ 
+         const pid = ProcessId(childProcess.pid!)
+         childProcess.on("exit", (code) => {
+-          if (code !== 0 && Predicate.isNotNull(code)) {
++          // Windows: the leader already exited, so taskkill by pid finds nothing. Waiting for it costs about 170 ms.
++          if (code !== 0 && Predicate.isNotNull(code) && globalThis.process.platform !== "win32") {
+             killProcessGroupOnExit(childProcess, cmd.options.killSignal ?? "SIGTERM")
+           }
+         })

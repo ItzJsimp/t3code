@@ -1,6 +1,15 @@
-import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
+import {
+  Navigate,
+  Outlet,
+  createFileRoute,
+  redirect,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import { ExternalLinkIcon, PanelsTopLeftIcon, RotateCcwIcon } from "lucide-react";
+import { ChevronLeftIcon, ExternalLinkIcon, PanelsTopLeftIcon, RotateCcwIcon } from "lucide-react";
+import { useIsMobile } from "../hooks/useMediaQuery";
+import { cn } from "../lib/utils";
 import { Button } from "../components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../components/ui/tooltip";
 import { toastManager } from "../components/ui/toast";
@@ -115,8 +124,12 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
 
 function SettingsContentLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const navigateToMainApp = useNavigateToMainApp();
   const { search, environment } = useSettingsScope();
+  // Phones: /settings is the labeled section list, a section path is its page.
+  const onPhoneList = isMobile && location.pathname === "/settings";
   const contentScopeKey =
     location.pathname === "/settings/providers"
       ? environment?.environmentId
@@ -155,12 +168,26 @@ function SettingsContentLayout() {
     void navigateToMainApp();
   };
 
+  if (!isMobile && location.pathname === "/settings") {
+    return <Navigate to="/settings/general" replace />;
+  }
+
   return (
     <AppRouteModal label="Settings" fullWindow={detached}>
       <div className="relative flex min-h-0 flex-1">
         <SettingsSidebarNav pathname={location.pathname} />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="flex h-12 shrink-0 items-center gap-3 border-b ps-5 pe-2">
+        <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", onPhoneList && "max-md:hidden")}>
+          <header className="flex h-12 shrink-0 items-center gap-3 border-b ps-2 pe-2 md:ps-5">
+            <Button
+              size="xs"
+              variant="ghost"
+              className="md:hidden"
+              aria-label="Back to settings sections"
+              onClick={() => void navigate({ to: "/settings" })}
+            >
+              <ChevronLeftIcon className="size-3.5" />
+              Settings
+            </Button>
             <div className="min-w-0 flex-1 overflow-hidden">
               <SettingsBreadcrumb pathname={location.pathname} />
             </div>
@@ -246,7 +273,8 @@ export const Route = createFileRoute("/_chat/settings")({
   validateSearch: validateSettingsRouteSearch,
   search: { middlewares: [retainSettingsScope] },
   beforeLoad: ({ location }) => {
-    if (location.pathname === "/settings") {
+    // Phones keep /settings as the section list, see SettingsContentLayout.
+    if (location.pathname === "/settings" && !window.matchMedia("(max-width: 767px)").matches) {
       throw redirect({ to: "/settings/general", replace: true });
     }
     // Old pages were split by concern: keep their links working, with the search and hash.

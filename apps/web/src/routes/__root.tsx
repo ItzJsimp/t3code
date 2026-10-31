@@ -1,4 +1,5 @@
 import { CacheNoticeCoordinator } from "../components/chat/CacheAwareness";
+import { ReleaseStatusWatcher } from "../components/commandCenter/ReleaseStatusWatcher";
 import { PermissionUpdateNotice } from "../components/PermissionUpdateNotice";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
@@ -293,6 +294,7 @@ function RootRouteView() {
           <CommunityCoordinator />
           <SlowRpcRequestToastCoordinator />
           <PermissionUpdateNotice />
+          <ReleaseStatusWatcher />
           {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}
           {primaryEnvironmentAuthenticated ? <LeonidasThemeAdoptionNotice /> : null}
           <ProjectCloneToastCoordinator />

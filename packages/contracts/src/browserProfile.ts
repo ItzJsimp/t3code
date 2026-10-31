@@ -50,6 +50,8 @@ export type BrowserProfile = typeof BrowserProfile.Type;
 
 export const DEFAULT_BROWSER_PROFILE_ID: BrowserProfileId = "default";
 export const INCOGNITO_BROWSER_PROFILE_ID: BrowserProfileId = "incognito";
+/** Reserved environment-owned profile, advertised only after the server opt-in. */
+export const SHARED_BROWSER_PROFILE_ID: BrowserProfileId = "leonidas-shared-browser";
 
 /**
  * Built-ins are synthesized rather than stored, so they cannot be renamed out

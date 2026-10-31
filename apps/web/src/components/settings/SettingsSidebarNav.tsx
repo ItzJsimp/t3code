@@ -128,6 +128,9 @@ function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   return <Icon className="mt-0.5 size-3.5 shrink-0 text-sidebar-muted-foreground/60" />;
 }
 
+// 44 px touch rows on phones, where `/settings` is the section list.
+const ROW_CLASS_NAME = "max-md:h-11";
+
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const navigate = useNavigate();
   const currentHash = useLocation({ select: (location) => location.hash });
@@ -211,11 +214,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       void navigate({
         to,
         hash: "",
-        replace: true,
+        // From the phone list, push so back returns to the list.
+        replace: pathname !== "/settings",
         hashScrollIntoView: false,
       });
     },
-    [navigate],
+    [navigate, pathname],
   );
   const clearSearch = useCallback(() => {
     setQuery("");
@@ -233,7 +237,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       void navigate({
         to: item.to,
         hash: targetId,
-        replace: true,
+        replace: pathname !== "/settings",
         hashScrollIntoView: false,
         state: { settingsTargetHighlight: true },
       });
@@ -267,15 +271,21 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     },
     [activeResultIndex, clearSearch, handleSearchResultClick, isSearching, results],
   );
-  const labelClassName = cn("truncate", !compactSearchOpen && "max-md:sr-only");
+  // Below md `/settings` is the full-width labeled list; a section hides the nav.
+  const onPhoneList = pathname === "/settings";
+  const expanded = compactSearchOpen || onPhoneList;
+  const labelClassName = cn("truncate", !expanded && "max-md:sr-only");
   return (
     <nav
       aria-label="Settings sections"
       data-settings-nav=""
       className={cn(
-        "flex w-60 shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground max-md:w-14",
-        compactSearchOpen &&
-          "max-md:absolute max-md:inset-y-0 max-md:start-0 max-md:z-10 max-md:w-full",
+        "flex w-60 shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground",
+        onPhoneList
+          ? "max-md:w-full max-md:border-e-0"
+          : compactSearchOpen
+            ? "max-md:absolute max-md:inset-y-0 max-md:start-0 max-md:z-10 max-md:w-full"
+            : "max-md:hidden",
       )}
     >
       <SidebarContent className="overflow-x-hidden">
@@ -284,7 +294,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
             <div
               className={cn(
                 "flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-                !compactSearchOpen && "max-md:hidden",
+                !expanded && "max-md:hidden",
               )}
             >
               <SearchIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
@@ -375,7 +385,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               </SidebarMenu>
             ) : (
               <>
-                {compactSearchOpen ? null : (
+                {expanded ? null : (
                   <SidebarMenu className="md:hidden">
                     <SidebarMenuItem>
                       <SidebarMenuButton
@@ -397,7 +407,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                       <p
                         className={cn(
                           "px-2 pt-2 pb-1 text-2xs font-medium tracking-wide text-sidebar-muted-foreground uppercase",
-                          !compactSearchOpen && "max-md:hidden",
+                          !expanded && "max-md:hidden",
                         )}
                       >
                         {group.heading}
@@ -411,6 +421,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                           <SidebarMenuItem key={to}>
                             <SidebarMenuButton
                               data-settings-section={to}
+                              className={ROW_CLASS_NAME}
                               isActive={isActive}
                               aria-current={isActive ? "page" : undefined}
                               onClick={() => handleSectionClick(to)}
@@ -424,6 +435,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                       {index === navGroups.length - 1 ? (
                         <SidebarMenuItem>
                           <SidebarMenuButton
+                            className={ROW_CLASS_NAME}
                             isActive={pathname === "/system-care"}
                             onClick={() => void navigate({ to: "/system-care" })}
                           >
@@ -439,21 +451,27 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   <p
                     className={cn(
                       "px-2 pt-2 pb-1 text-2xs font-medium tracking-wide text-sidebar-muted-foreground uppercase",
-                      !compactSearchOpen && "max-md:hidden",
+                      !expanded && "max-md:hidden",
                     )}
                   >
                     Help
                   </p>
                   <SidebarMenu>
                     <SidebarMenuItem>
-                      <SidebarMenuButton onClick={openReleaseHistoryDialog}>
+                      <SidebarMenuButton
+                        className={ROW_CLASS_NAME}
+                        onClick={openReleaseHistoryDialog}
+                      >
                         <ScrollTextIcon />
                         <span className={labelClassName}>What changed</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     {STUCK_ENABLED ? (
                       <SidebarMenuItem>
-                        <SidebarMenuButton onClick={() => openStuck("button")}>
+                        <SidebarMenuButton
+                          className={ROW_CLASS_NAME}
+                          onClick={() => openStuck("button")}
+                        >
                           <LifeBuoyIcon />
                           <span className={labelClassName}>I&apos;m stuck</span>
                         </SidebarMenuButton>
@@ -461,7 +479,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     ) : null}
                     {FEEDBACK_ENABLED ? (
                       <SidebarMenuItem>
-                        <SidebarMenuButton onClick={() => openFeedback({ source: "sidebar" })}>
+                        <SidebarMenuButton
+                          className={ROW_CLASS_NAME}
+                          onClick={() => openFeedback({ source: "sidebar" })}
+                        >
                           <MessageSquareWarningIcon />
                           <span className={labelClassName}>Send feedback</span>
                         </SidebarMenuButton>

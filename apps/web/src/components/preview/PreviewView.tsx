@@ -9,6 +9,7 @@ import {
 import {
   AuthOrchestrationOperateScope,
   DEFAULT_BROWSER_PROFILE_ID,
+  SHARED_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
   type PreviewAnnotationPayload,
   type PreviewViewportSetting,
@@ -111,6 +112,7 @@ function previewProfileName(
   profiles: ReadonlyArray<{ readonly id: string; readonly name: string }>,
   profileId: string,
 ): string {
+  if (profileId === SHARED_BROWSER_PROFILE_ID) return "Shared browser";
   return profiles.find((profile) => profile.id === profileId)?.name ?? "Removed profile";
 }
 

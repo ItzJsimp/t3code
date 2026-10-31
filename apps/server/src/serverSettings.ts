@@ -10,7 +10,10 @@
  *
  * @module ServerSettings
  */
-import { setAiLevelSetting } from "@t3tools/provider-core/server/runtimeInstructions";
+import {
+  setAiLevelSetting,
+  setSharedBrowserAccess,
+} from "@t3tools/provider-core/server/runtimeInstructions";
 import {
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
@@ -837,7 +840,10 @@ const make = Effect.gen(function* () {
 
   // Every provider prompt reads the install's AI level from provider-core.
   const syncAiLevel = (settings: ServerSettings) =>
-    Effect.sync(() => setAiLevelSetting(settings.aiLevel, settings.aiLevelSince));
+    Effect.sync(() => {
+      setAiLevelSetting(settings.aiLevel, settings.aiLevelSince);
+      setSharedBrowserAccess(settings.enableSharedBrowser && settings.enableAgentBrowserAccess);
+    });
   const emitChange = (settings: ServerSettings) =>
     syncAiLevel(settings).pipe(
       Effect.andThen(PubSub.publish(changesPubSub, settings)),

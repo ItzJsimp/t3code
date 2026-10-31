@@ -1,5 +1,7 @@
 import {
   type AuthEnvironmentScope,
+  AuthAdministrativeScopes,
+  AuthStandardClientScopes,
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
@@ -60,6 +62,12 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("keeps release status behind release:read, which only administrative sessions hold", () => {
+    const required = requiredScopeForRpcMethod(WS_METHODS.releaseStatusRuns);
+    expect(required).toBe("release:read");
+    expect(AuthAdministrativeScopes).toContain(required);
+    expect(AuthStandardClientScopes).not.toContain(required);
+  });
   it("requires read scope for Scribe status", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.scribeGetStatus)).toBe(AuthOrchestrationReadScope);
   });

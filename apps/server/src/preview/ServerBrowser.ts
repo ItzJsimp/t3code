@@ -7,6 +7,8 @@ import {
   FILL_PREVIEW_VIEWPORT,
   findBrowserProfile,
   INCOGNITO_BROWSER_PROFILE_ID,
+  SHARED_BROWSER_PROFILE_ID,
+  SharedBrowserSetupError,
   resolveBrowserProfiles,
   type BrowserProfile,
   type PreviewReportProfilesInput,
@@ -71,6 +73,7 @@ import type {
 
 import { PENDING_ATTACHMENT_THREAD_SEGMENT } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { resolveRootCliCommand } from "../cli/invocation.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
@@ -250,6 +253,7 @@ export class ServerBrowser extends Context.Service<
      * clients report again on connect and whenever the list changes.
      */
     readonly reportProfiles: (input: PreviewReportProfilesInput) => Effect.Effect<void>;
+    readonly checkSharedBrowser: () => Effect.Effect<void, SharedBrowserSetupError>;
   }
 >()("t3/preview/ServerBrowser") {}
 
@@ -474,8 +478,22 @@ const CLIPBOARD_SCRIPT = `(() => {
   };
 })();`;
 
+const isSharedBrowserSetupError = Schema.is(SharedBrowserSetupError);
+
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const sharedBrowserEnabled = async () => {
+    const settings = await Effect.runPromise(serverSettings.getSettings);
+    return settings.enableSharedBrowser && settings.enableAgentBrowserAccess;
+  };
+  const assertSharedBrowserAccess = async (profileId: string | undefined) => {
+    if (profileId === SHARED_BROWSER_PROFILE_ID && !(await sharedBrowserEnabled()))
+      throw new ServerBrowserPage.ServerBrowserOperationError(
+        "SharedBrowserDisabledError",
+        "Shared browser access is off. Enable Shared browser and AI browser access in Settings > Browser.",
+      );
+  };
   const host = { platform: yield* HostProcess.Platform, arch: yield* HostProcess.Architecture };
   const manager = yield* PreviewManager.PreviewManager;
   const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
@@ -1283,10 +1301,15 @@ const make = Effect.gen(function* () {
       };
     });
 
-  const profileStatus = () => {
+  const profileStatus = async () => {
     const profiles = reportedProfiles?.profiles ?? BUILT_IN_BROWSER_PROFILES;
     return {
-      profiles: profiles.map((profile) => ({
+      profiles: [
+        ...profiles.filter((profile) => profile.id !== SHARED_BROWSER_PROFILE_ID),
+        ...((await sharedBrowserEnabled())
+          ? [{ id: SHARED_BROWSER_PROFILE_ID, name: "Shared browser", kind: "persistent" as const }]
+          : []),
+      ].map((profile) => ({
         id: profile.id,
         name: profile.name,
         ...(profile.kind === "incognito" ? { incognito: true } : {}),
@@ -1296,14 +1319,24 @@ const make = Effect.gen(function* () {
   };
 
   /** Matches an id, then a case-insensitive name. Omitted means the reported default. */
-  const resolveOpenProfile = (requested: string | undefined): string | undefined => {
-    if (requested === undefined) return reportedProfiles?.defaultProfileId;
+  const resolveOpenProfile = async (requested: string | undefined): Promise<string | undefined> => {
+    if (requested === SHARED_BROWSER_PROFILE_ID || requested?.toLowerCase() === "shared browser") {
+      await assertSharedBrowserAccess(SHARED_BROWSER_PROFILE_ID);
+      return SHARED_BROWSER_PROFILE_ID;
+    }
+    if (requested === undefined) {
+      await assertSharedBrowserAccess(reportedProfiles?.defaultProfileId);
+      return reportedProfiles?.defaultProfileId;
+    }
     const profiles = reportedProfiles?.profiles ?? BUILT_IN_BROWSER_PROFILES;
     const wanted = requested.toLowerCase();
     const match =
       findBrowserProfile(profiles, requested) ??
       profiles.find((profile) => profile.name.toLowerCase() === wanted);
-    if (match) return match.id;
+    if (match) {
+      await assertSharedBrowserAccess(match.id);
+      return match.id;
+    }
     throw new ServerBrowserPage.ServerBrowserOperationError(
       "PreviewAutomationUnknownProfileError",
       `No browser profile is named "${requested}". Use one of: ${profiles
@@ -1316,7 +1349,8 @@ const make = Effect.gen(function* () {
     tab: ServerTab | undefined,
     agentSessionId?: string,
   ): Promise<PreviewAutomationStatus> => {
-    if (!tab) {
+    const sharedEnabled = await sharedBrowserEnabled();
+    if (!tab || (tab.profileId === SHARED_BROWSER_PROFILE_ID && !sharedEnabled)) {
       return {
         available: false,
         visible: false,
@@ -1324,7 +1358,7 @@ const make = Effect.gen(function* () {
         url: null,
         title: null,
         loading: false,
-        ...profileStatus(),
+        ...(await profileStatus()),
       };
     }
     const url = tab.page.url();
@@ -1348,7 +1382,11 @@ const make = Effect.gen(function* () {
       viewportSetting: tab.setting,
       ...(viewport ? { viewport } : {}),
       tabs: [...tabs.values()]
-        .filter((candidate) => candidate.threadId === tab.threadId)
+        .filter(
+          (candidate) =>
+            candidate.threadId === tab.threadId &&
+            (sharedEnabled || candidate.profileId !== SHARED_BROWSER_PROFILE_ID),
+        )
         .map((candidate) => ({
           tabId: candidate.tabId,
           url: candidate.page.url() === "about:blank" ? null : candidate.page.url(),
@@ -1358,7 +1396,7 @@ const make = Effect.gen(function* () {
           visible: candidate.viewers.size > 0,
           ...(candidate.profileId === undefined ? {} : { profileId: candidate.profileId }),
         })),
-      ...profileStatus(),
+      ...(await profileStatus()),
       downloads: tab.downloads.map(({ fileName, path, sizeBytes, url, completedAt }) => ({
         fileName,
         path,
@@ -1661,6 +1699,7 @@ const make = Effect.gen(function* () {
       );
     }
     // Any tab in the thread can be read; acting is checked by its control.
+    await assertSharedBrowserAccess(tab.profileId);
     if (!READ_OPERATIONS.has(request.operation) && !tab.control.agentMayAct(request.agentSessionId))
       throw new BrowserControlInterrupted(
         "This tab belongs to another agent session. You can read it, but open your own tab to act.",
@@ -1685,6 +1724,11 @@ const make = Effect.gen(function* () {
   };
 
   const runOperation = async (request: PreviewAutomationRequest): Promise<unknown> => {
+    const target =
+      request.tabId === undefined
+        ? latestThreadTab(request.threadId, request.agentSessionId)
+        : tabs.get(tabKey(request.threadId, request.tabId));
+    if (request.operation !== "status") await assertSharedBrowserAccess(target?.profileId);
     const input = request.input;
     switch (request.operation) {
       case "status":
@@ -1732,7 +1776,17 @@ const make = Effect.gen(function* () {
             ? found
             : undefined;
         const navigationTimeout = Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS);
-        const profileId = existing ? undefined : resolveOpenProfile(open.profileId);
+        if (existing) await assertSharedBrowserAccess(existing.profileId);
+        if (
+          existing &&
+          open.profileId !== undefined &&
+          (await resolveOpenProfile(open.profileId)) !== existing.profileId
+        )
+          throw new ServerBrowserPage.ServerBrowserOperationError(
+            "PreviewAutomationProfileMismatchError",
+            "This tab uses another profile. Set reuseExistingTab=false to open the requested profile.",
+          );
+        const profileId = existing ? undefined : await resolveOpenProfile(open.profileId);
         if (!existing) {
           closeIdleAgentTabs();
           assertTabCapacity(request.agentSessionId);
@@ -1757,6 +1811,7 @@ const make = Effect.gen(function* () {
             "dialogPending",
           );
         return tab.control.agent(request.agentSessionId, async () => {
+          await assertSharedBrowserAccess(tab.profileId);
           if (tab.dialog)
             throw new BrowserControlInterrupted(
               "A browser dialog is pending. Read preview_status and use preview_dialog first.",
@@ -1877,6 +1932,7 @@ const make = Effect.gen(function* () {
   };
 
   const executeTabOperation = async (tab: ServerTab, request: PreviewAutomationRequest) => {
+    await assertSharedBrowserAccess(tab.profileId);
     const input = request.input;
     switch (request.operation) {
       case "navigate": {
@@ -2471,6 +2527,35 @@ const make = Effect.gen(function* () {
     });
 
   return ServerBrowser.of({
+    checkSharedBrowser: () =>
+      Effect.tryPromise({
+        try: async () => {
+          if (!(await sharedBrowserEnabled()))
+            throw new SharedBrowserSetupError({
+              code: "disabled",
+              message: "Enable Shared browser in Settings > Integrations, then try again.",
+            });
+          await contexts.contextFor(SHARED_BROWSER_PROFILE_ID);
+        },
+        catch: (cause) => {
+          if (isSharedBrowserSetupError(cause)) return cause;
+          const reason = cause instanceof Error ? cause.message : String(cause);
+          const locked = /ProcessSingleton|SingletonLock|profile.*in use/i.test(reason);
+          const disconnected = /closed|disconnected/i.test(reason);
+          return new SharedBrowserSetupError({
+            code: locked
+              ? "profile-locked"
+              : disconnected
+                ? "connection-lost"
+                : "browser-unavailable",
+            message: locked
+              ? "The shared profile is in use by another app. Close that browser and try again."
+              : disconnected
+                ? "The shared browser connection was lost. Open the shared browser again."
+                : `The shared browser could not start. Check the selected server's browser setup, then try again. ${reason}`,
+          });
+        },
+      }),
     attachViewer,
     clearProfile,
     reportProfiles,

@@ -410,11 +410,16 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
     yield* driver.statusDetailsRemote(cwd, { refreshUpstream: false });
     yield* driver.listRefs({ cwd });
 
+    // Status now starts with its numstat and default-branch lookups, so a non-repository also
+    // runs those; their results are discarded.
     assert.deepStrictEqual(commands, [
       { args: ["rev-parse", "--git-path", "index"], lcAll: "C" },
-      { args: ["status", "--porcelain=2", "--branch"], lcAll: "C" },
-      { args: ["rev-parse", "--abbrev-ref", "HEAD"], lcAll: "C" },
       { args: ["rev-parse", "--git-common-dir"], lcAll: "C" },
+      { args: ["status", "--porcelain=2", "--branch"], lcAll: "C" },
+      { args: ["diff-index", "-M", "--numstat", "HEAD", "--"], lcAll: "C" },
+      { args: ["symbolic-ref", "refs/remotes/origin/HEAD"] },
+      { args: ["remote", "get-url", "origin"] },
+      { args: ["rev-parse", "--abbrev-ref", "HEAD"], lcAll: "C" },
     ]);
   }).pipe(Effect.provide(layer));
 });
@@ -2350,6 +2355,35 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const preview = yield* driver.getReviewDiffPreview({ cwd });
         assert.isNotEmpty(preview.sources);
         assert.isTrue(preview.sources.every((source) => source.truncated));
+      }),
+    );
+
+    it.effect("Changes totals follow a checkout made between two status reads", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["checkout", "-b", "feature/totals"]);
+        yield* writeTextFile(cwd, "feature.txt", "a\nb\nc\n");
+        yield* git(cwd, ["add", "feature.txt"]);
+        yield* git(cwd, ["commit", "-m", "feature work"]);
+
+        // The first read caches the repository paths while feature/totals is checked out.
+        const onFeature = yield* driver.statusDetailsLocal(cwd, { includeBranchChanges: true });
+        assert.deepStrictEqual(onFeature.branchChanges, {
+          baseRef: initialBranch,
+          insertions: 3,
+          deletions: 0,
+        });
+
+        yield* git(cwd, ["checkout", initialBranch]);
+        const onBase = yield* driver.statusDetailsLocal(cwd, { includeBranchChanges: true });
+        assert.strictEqual(onBase.branch, initialBranch);
+        assert.deepStrictEqual(onBase.branchChanges, {
+          baseRef: null,
+          insertions: 0,
+          deletions: 0,
+        });
       }),
     );
 

@@ -28,6 +28,7 @@ import * as Broker from "../mcp/PreviewAutomationBroker.ts";
 import * as DesktopChannel from "./DesktopBrowserChannel.ts";
 import * as Manager from "./Manager.ts";
 import * as ServerBrowser from "./ServerBrowser.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 
 // Keep the manager, broker, ownership, refs, and viewer paths real; replace Chromium I/O only.
@@ -236,7 +237,9 @@ const dependencies = Layer.mergeAll(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-browser-" })),
   Layer.provideMerge(NodeServices.layer),
 );
-const layer = ServerBrowser.layer.pipe(Layer.provideMerge(dependencies));
+const layer = ServerBrowser.layer.pipe(
+  Layer.provideMerge(Layer.merge(dependencies, ServerSettings.layerTest())),
+);
 const ready = Effect.gen(function* () {
   const browser = yield* ServerBrowser.ServerBrowser;
   const broker = yield* Broker.PreviewAutomationBroker;
@@ -249,6 +252,122 @@ const ready = Effect.gen(function* () {
   const tabId = PreviewTabId.make(opened.tabId!);
   return { browser, broker, tabId };
 });
+
+it.live("shared setup reports disabled, locked, missing browser, and lost connection", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { browser } = yield* ready;
+      const settings = yield* ServerSettings.ServerSettingsService;
+      expect((yield* browser.checkSharedBrowser().pipe(Effect.flip)).code).toBe("disabled");
+      yield* settings.updateSettings({ enableSharedBrowser: true });
+      for (const [message, code] of [
+        ["ProcessSingleton: profile is in use", "profile-locked"],
+        ["Executable does not exist", "browser-unavailable"],
+        ["Browser disconnected", "connection-lost"],
+      ]) {
+        contextFailure = new Error(message);
+        expect((yield* browser.checkSharedBrowser().pipe(Effect.flip)).code).toBe(code);
+      }
+      contextFailure = null;
+      yield* browser.checkSharedBrowser();
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live(
+  "shared profile requires opt-in, crosses provider accounts, and revokes existing tabs",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { broker } = yield* ready;
+        const settings = yield* ServerSettings.ServerSettingsService;
+        const open = (caller = scope) =>
+          broker.invoke<PreviewAutomationStatus>({
+            scope: caller,
+            operation: "open",
+            input: { profileId: "leonidas-shared-browser", reuseExistingTab: false, show: false },
+          });
+        const disabled = yield* open().pipe(Effect.flip);
+        expect(disabled.message).toContain("Shared browser access is off");
+        const ordinary = yield* broker.invoke<PreviewAutomationStatus>({
+          scope,
+          operation: "status",
+          input: {},
+        });
+        yield* settings.updateSettings({ enableSharedBrowser: true });
+        const first = yield* open();
+        const second = yield* open({
+          ...scope,
+          thread: {
+            ...testThread,
+            providerSessionId: "claude-account-b",
+            providerInstanceId: ProviderInstanceId.make("claude-b"),
+          },
+        });
+        expect(first.tabId).not.toBe(second.tabId);
+        const third = yield* open({
+          ...scope,
+          thread: {
+            ...testThread,
+            providerSessionId: "claude-account-a",
+            providerInstanceId: ProviderInstanceId.make("claude-a"),
+          },
+        });
+        expect(third.tabId).not.toBe(second.tabId);
+        expect(first.profiles).toContainEqual({
+          id: "leonidas-shared-browser",
+          name: "Shared browser",
+        });
+        expect(contextRequests.slice(-3)).toEqual([
+          { profileId: "leonidas-shared-browser", isolated: false },
+          { profileId: "leonidas-shared-browser", isolated: false },
+          { profileId: "leonidas-shared-browser", isolated: false },
+        ]);
+        yield* settings.updateSettings({ enableAgentBrowserAccess: false });
+        const globallyDisabled = yield* broker
+          .invoke<string>({
+            scope,
+            tabId: PreviewTabId.make(first.tabId!),
+            operation: "evaluate",
+            input: { expression: "document.title" },
+          })
+          .pipe(Effect.flip);
+        expect(globallyDisabled.message).toContain("Shared browser access is off");
+        yield* settings.updateSettings({ enableAgentBrowserAccess: true });
+        yield* settings.updateSettings({ enableSharedBrowser: false });
+        const rejected = yield* broker
+          .invoke<string>({
+            scope,
+            tabId: PreviewTabId.make(first.tabId!),
+            operation: "evaluate",
+            input: { script: "document.title" },
+          })
+          .pipe(Effect.flip);
+        expect(rejected.message).toContain("Shared browser access is off");
+        const status = yield* broker.invoke<PreviewAutomationStatus>({
+          scope,
+          operation: "status",
+          input: {},
+        });
+        expect(status.profiles?.some((profile) => profile.id === "leonidas-shared-browser")).toBe(
+          false,
+        );
+        expect(status.available).toBe(false);
+        expect(status.url).toBeNull();
+        expect(status.title).toBeNull();
+        expect(status.tabs ?? []).toEqual([]);
+        const ordinaryStatus = yield* broker.invoke<PreviewAutomationStatus>({
+          scope,
+          tabId: PreviewTabId.make(ordinary.tabId!),
+          operation: "status",
+          input: {},
+        });
+        expect(
+          ordinaryStatus.tabs?.some((tab) => tab.profileId === "leonidas-shared-browser"),
+        ).toBe(false);
+      }),
+    ).pipe(Effect.provide(layer)),
+);
 /** Fills a viewer's output the way a viewer that stopped reading leaves it. */
 const stallViewer = (
   viewer: ServerBrowser.ServerBrowserViewer,

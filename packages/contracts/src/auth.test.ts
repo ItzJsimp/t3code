@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import {
+  AuthAdministrativeScopes,
   AuthEnvironmentScopes,
   AuthEnvironmentScope,
   authScopeRequiredResponse,
@@ -12,6 +13,22 @@ import {
   sessionGrantsScope,
   sessionHasLegacyPermissions,
 } from "./auth.ts";
+
+describe("release:read scope", () => {
+  it("is held by administrative sessions and never by a standard client", () => {
+    expect(AuthAdministrativeScopes).toContain("release:read");
+    expect(AuthStandardClientScopes).not.toContain("release:read");
+  });
+
+  it("is not granted by another permission", () => {
+    expect(
+      sessionGrantsScope(
+        { authenticated: true, permissions: [...AuthStandardClientScopes] },
+        "release:read",
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("authorization grants", () => {
   it("decodes legacy review credentials without offering them in new grants", () => {

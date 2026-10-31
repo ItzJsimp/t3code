@@ -5,7 +5,7 @@
 //   node scripts/server-bench.mjs --root C:/lcw/up-look --label base --fixture C:/lcw/p5/bench-fixture
 //   --runs 7  --idle-seconds 60  --out <jsonl>  --keep (keep the temp home)
 // The fixture folder holds statev2.sqlite and fixture.json (thread ids by size).
-// Not measured here: git status through the server and per-query counts need the WebSocket RPC.
+// Git status and the connected-client idle run use apps/server/scripts/server-bench-ws.ts (WebSocket). Per-query counts need a SQL hook.
 import { spawn, spawnSync } from "node:child_process";
 import {
   copyFileSync,
@@ -31,6 +31,8 @@ const runs = Number(flag("--runs", "7"));
 const idleSeconds = Number(flag("--idle-seconds", "60"));
 const out = resolve(flag("--out", "C:/lcw/p5/bench-results.jsonl"));
 const keep = argv.includes("--keep");
+// Repo whose git status is timed through the server (a dirty checkout with many files is the hard case).
+const gitCwd = resolve(flag("--git-cwd", root));
 const entry = join(root, "apps/server/src/bin.ts");
 const meta = JSON.parse(readFileSync(join(fixture, "fixture.json"), "utf8"));
 
@@ -145,6 +147,33 @@ const timed = async (path, init = {}) => {
   return { ms: performance.now() - t, bytes: buf.byteLength, body: buf };
 };
 
+// WebSocket half: apps/server/scripts/server-bench-ws.ts (git status and held subscriptions).
+const wsArgs = (mode, extra) => [
+  "apps/server/scripts/server-bench-ws.ts",
+  "--origin",
+  origin,
+  "--token",
+  token,
+  "--cwd",
+  gitCwd,
+  "--mode",
+  mode,
+  ...extra,
+];
+function wsStatus() {
+  const r = spawnSync(process.execPath, wsArgs("status", ["--runs", String(runs)]), {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 300_000,
+  });
+  const line = r.stdout.trim().split(/\r?\n/).pop() || r.stderr.slice(-300);
+  try {
+    return JSON.parse(line);
+  } catch {
+    return { error: line.slice(0, 300) };
+  }
+}
+
 // Let startup work (projection maintenance, indexing) finish before timing reads.
 await sleep(20_000);
 
@@ -210,6 +239,19 @@ if (project) {
   result.shellUnderWrite = null;
 }
 
+// 3b. Git status through the server over WebSocket, with the raw git time as the floor.
+const rawGit = [];
+for (let i = 0; i < 3; i++) {
+  const t = performance.now();
+  spawnSync("git", ["status", "--porcelain=v2", "--branch"], {
+    cwd: gitCwd,
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+  });
+  rawGit.push(performance.now() - t);
+}
+result.gitStatus = { viaServer: wsStatus(), rawGitMs: stat(rawGit) };
+
 // 4. Idle cost: file reads and CPU of the server tree with no client connected.
 await sleep(10_000);
 const a = procCounters(server.pid);
@@ -223,6 +265,39 @@ result.idlePerMin = {
   cpuSec: +((b.cpuSec - a.cpuSec) / mins).toFixed(2),
   seconds: idleSeconds,
 };
+
+// 5. Idle cost with the app's subscriptions held open (server config, shell stream, git status).
+{
+  const holdFor = 15 + idleSeconds + 5;
+  const holder = spawn(process.execPath, wsArgs("hold", ["--seconds", String(holdFor)]), {
+    cwd: root,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let holdOut = "";
+  holder.stdout.on("data", (d) => (holdOut += d));
+  await sleep(15_000);
+  const c = procCounters(server.pid);
+  const ct0 = performance.now();
+  await sleep(idleSeconds * 1000);
+  const d = procCounters(server.pid);
+  const cm = (performance.now() - ct0) / 60_000;
+  result.idleConnectedPerMin = {
+    readOps: Math.round((d.ops - c.ops) / cm),
+    readKB: Math.round((d.bytes - c.bytes) / 1024 / cm),
+    cpuSec: +((d.cpuSec - c.cpuSec) / cm).toFixed(2),
+    seconds: idleSeconds,
+  };
+  await new Promise((r) => {
+    holder.on("exit", r);
+    setTimeout(() => {
+      holder.kill();
+      r();
+    }, 20_000);
+  });
+  try {
+    result.idleConnectedPerMin.events = JSON.parse(holdOut.trim().split(/\r?\n/).pop()).counts;
+  } catch {}
+}
 
 appendFileSync(out, JSON.stringify(result) + "\n");
 console.log(JSON.stringify(result, null, 2));

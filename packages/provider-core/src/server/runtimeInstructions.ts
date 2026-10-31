@@ -27,6 +27,17 @@ let aiLevelSetting: { readonly level: AiLevel; readonly since: string } = {
 };
 
 /** The server calls this on start and on every settings change. */
+let sharedBrowserAccess = false;
+
+/** Updated with the server's environment settings snapshot. */
+export function setSharedBrowserAccess(enabled: boolean): void {
+  sharedBrowserAccess = enabled;
+}
+
+const SHARED_BROWSER_INSTRUCTIONS = `<shared_browser>
+For sites that need the user's website logins, such as "open my Whop course", call preview_status and select the Shared browser profile. Pass profileId="leonidas-shared-browser" and reuseExistingTab=false to preview_open. Provider accounts share saved website logins in that environment. Keep development servers and public pages in ordinary Preview profiles. The user signs in once inside the shared profile; pause for passwords, MFA, or CAPTCHA. If the profile is not listed, report that shared access is off or unavailable. Ask before any action that buys, posts, or sends. Respect human tab ownership and use your own tab for actions.
+</shared_browser>`;
+
 export function setAiLevelSetting(level: AiLevel, since: string): void {
   aiLevelSetting = { level, since };
 }
@@ -74,7 +85,7 @@ export function buildRuntimeInstructions(runtime: {
 ${PONYTAIL_RULES}`
   }
 
-${builder ? USER_QUESTION_INSTRUCTIONS : actFirstQuestionInstructions(level === "comfortable")}`;
+${builder ? USER_QUESTION_INSTRUCTIONS : actFirstQuestionInstructions(level === "comfortable")}${sharedBrowserAccess ? `\n\n${SHARED_BROWSER_INSTRUCTIONS}` : ""}`;
 }
 
 function toSingleLine(value: string): string {

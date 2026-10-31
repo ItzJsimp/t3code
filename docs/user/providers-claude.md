@@ -4,6 +4,8 @@ Leonidas Code uses Claude Code's login and configuration. Start with the default
 for one account; [provider setup](./install.md#providers) covers installation and
 shared provider settings.
 
+For browser access across Claude accounts and other providers, use the [shared browser](./shared-browser.md).
+
 ## Separate accounts or configurations
 
 Use a separate Claude config directory for each account. This also works for named

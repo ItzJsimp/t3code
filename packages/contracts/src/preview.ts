@@ -483,7 +483,16 @@ export class PreviewClearProfileError extends Schema.TaggedError<PreviewClearPro
   }
 }
 
+export class SharedBrowserSetupError extends Schema.TaggedError<SharedBrowserSetupError>()(
+  "SharedBrowserSetupError",
+  {
+    code: Schema.Literals(["disabled", "browser-unavailable", "profile-locked", "connection-lost"]),
+    message: Schema.String,
+  },
+) {}
+
 export const PreviewError = Schema.Union([
+  SharedBrowserSetupError,
   PreviewSessionLookupError,
   PreviewInvalidUrlError,
   PreviewControlRequiredError,

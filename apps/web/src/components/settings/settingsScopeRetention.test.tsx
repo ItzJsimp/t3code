@@ -11,8 +11,10 @@ interface ScopeState {
 
 const state = vi.hoisted(() => ({
   pathname: "/settings/providers",
+  mobile: false,
   scope: { search: {}, environmentId: null } as ScopeState,
 }));
+vi.mock("../../hooks/useMediaQuery", () => ({ useIsMobile: () => state.mobile }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
@@ -25,6 +27,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
     const location = { pathname: state.pathname, hash: "", state: {} };
     return options ? options.select(location) : location;
   },
+  useNavigate: () => vi.fn(),
+  Navigate: ({ to }: { to: string }) => <div data-navigate={to} />,
   Outlet: () => <StatefulContent />,
   redirect: vi.fn(),
 }));
@@ -85,6 +89,8 @@ function retainedValue() {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  state.mobile = false;
+  vi.stubGlobal("matchMedia", () => ({ matches: state.mobile }));
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -138,5 +144,23 @@ it.each([
   expect(redirect).toHaveBeenCalledTimes(1);
   expect(redirect).toHaveBeenCalledWith(
     href === null ? { to: "/settings/general", replace: true } : { href, replace: true },
+  );
+});
+
+it("keeps /settings as the section list on phones", async () => {
+  const { redirect } = await import("@tanstack/react-router");
+  vi.mocked(redirect).mockClear();
+  state.mobile = true;
+  Route.options.beforeLoad?.({
+    location: { pathname: "/settings", hash: "", searchStr: "" },
+  } as never);
+  expect(redirect).not.toHaveBeenCalled();
+});
+
+it("sends a window that grew past phone width from /settings to General", async () => {
+  state.pathname = "/settings";
+  await render(first);
+  expect(container.querySelector("[data-navigate]")?.getAttribute("data-navigate")).toBe(
+    "/settings/general",
   );
 });

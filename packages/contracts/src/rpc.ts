@@ -1,3 +1,4 @@
+import { ReleaseStatus } from "./releaseStatus.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -700,6 +701,7 @@ export const WS_METHODS = {
   workspacePackOrgDecide: "workspacePack.orgDecide",
   taskBoardHomeWeather: "taskBoard.homeWeather",
   taskBoardHomeNews: "taskBoard.homeNews",
+  releaseStatusRuns: "releaseStatus.runs",
   layaUsage: "laya.usage",
   ponytailUsage: "ponytail.usage",
   calendarEvents: "calendar.events",
@@ -2045,6 +2047,12 @@ const WsTaskBoardHomeWeatherRpc = Rpc.make(WS_METHODS.taskBoardHomeWeather, {
 const WsTaskBoardHomeNewsRpc = Rpc.make(WS_METHODS.taskBoardHomeNews, {
   payload: Schema.Struct({}),
   success: TaskBoardHomeNews,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsReleaseStatusRunsRpc = Rpc.make(WS_METHODS.releaseStatusRuns, {
+  payload: Schema.Struct({}),
+  success: ReleaseStatus,
   error: EnvironmentAuthorizationError,
 });
 
@@ -3428,6 +3436,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAiosDirectionRpc,
   WsTaskBoardHomeWeatherRpc,
   WsTaskBoardHomeNewsRpc,
+  WsReleaseStatusRunsRpc,
   WsLayaUsageRpc,
   WsPonytailUsageRpc,
   WsCalendarEventsRpc,

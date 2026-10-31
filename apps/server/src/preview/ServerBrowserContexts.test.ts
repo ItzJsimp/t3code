@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - Expected paths must use the host separators, like the browser pool.
+import * as NodePath from "node:path";
 import * as NodeEvents from "node:events";
 
 import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
@@ -99,10 +101,12 @@ describe("ServerBrowserContexts", () => {
     expect(await pool.contextFor("work/team")).toBe(persistent);
     expect(await pool.contextFor("work/team", "agent")).not.toBe(persistent);
     expect(launches.persistent).toHaveBeenCalledExactlyOnceWith(
-      "/test/profiles/work%2Fteam",
+      NodePath.join("/test/profiles", "work%2Fteam"),
       expect.objectContaining({ chromiumSandbox: true, executablePath: "/test/chromium" }),
     );
-    expect(launches.mkdir).toHaveBeenCalledWith("/test/profiles/work%2Fteam", { recursive: true });
+    expect(launches.mkdir).toHaveBeenCalledWith(NodePath.join("/test/profiles", "work%2Fteam"), {
+      recursive: true,
+    });
     await pool.close();
     expect(human.close).toHaveBeenCalledTimes(1);
   });
@@ -121,16 +125,19 @@ describe("ServerBrowserContexts", () => {
     });
     await pool.clearProfile("work/team");
     expect(onContextClose).toHaveBeenCalledExactlyOnceWith(persistent);
-    expect(launches.rm).toHaveBeenCalledExactlyOnceWith("/test/profiles/work%2Fteam", {
-      recursive: true,
-      force: true,
-    });
+    expect(launches.rm).toHaveBeenCalledExactlyOnceWith(
+      NodePath.join("/test/profiles", "work%2Fteam"),
+      {
+        recursive: true,
+        force: true,
+      },
+    );
     expect(await pool.contextFor("work/team", "agent")).toBe(agent);
     expect(browser.contexts[0]?.close).not.toHaveBeenCalled();
     launches.persistent.mockResolvedValue(makeContext() as unknown as BrowserContext);
     expect(await pool.contextFor("work/team")).not.toBe(persistent);
     await pool.clearProfile("never-opened");
-    expect(launches.rm).toHaveBeenLastCalledWith("/test/profiles/never-opened", {
+    expect(launches.rm).toHaveBeenLastCalledWith(NodePath.join("/test/profiles", "never-opened"), {
       recursive: true,
       force: true,
     });
