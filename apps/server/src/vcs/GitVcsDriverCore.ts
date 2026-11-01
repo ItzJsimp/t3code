@@ -6,6 +6,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -1930,31 +1931,35 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     // hold a branch from before a checkout. The result is used only if status names the same branch.
     const readEarlyBranchChanges =
       options?.includeBranchChanges && statusCacheKey
-        ? Effect.all([
-            executeGit(
-              "GitVcsDriver.statusDetails.branchName",
-              cwd,
-              ["symbolic-ref", "--quiet", "--short", "HEAD"],
-              { allowNonZeroExit: true },
-            ).pipe(
-              Effect.map((result) =>
-                result.exitCode === 0 && result.stdout.trim().length > 0
-                  ? result.stdout.trim()
-                  : null,
+        ? Effect.gen(function* () {
+            const totalsRoot = repositoryPaths?.worktreeRoot ?? cwd;
+            // The untracked listing is the slowest step and needs no branch name, so it starts
+            // now, beside status, and the totals join it later.
+            const untrackedFiber = yield* prepareUntrackedReviewIndex(totalsRoot, []).pipe(
+              Effect.forkScoped,
+            );
+            const [branch, knownOriginDefaultBranch] = yield* Effect.all([
+              executeGit(
+                "GitVcsDriver.statusDetails.branchName",
+                cwd,
+                ["symbolic-ref", "--quiet", "--short", "HEAD"],
+                { allowNonZeroExit: true },
+              ).pipe(
+                Effect.map((result) =>
+                  result.exitCode === 0 && result.stdout.trim().length > 0
+                    ? result.stdout.trim()
+                    : null,
+                ),
+                Effect.orElseSucceed(() => null),
               ),
-              Effect.orElseSucceed(() => null),
-            ),
-            readDefaultBranch,
-          ]).pipe(
-            Effect.flatMap(([branch, knownOriginDefaultBranch]) =>
-              readBranchChangeTotals(repositoryPaths?.worktreeRoot ?? cwd, branch, {
-                knownOriginDefaultBranch,
-              }).pipe(
-                Effect.orElseSucceed(() => undefined),
-                Effect.map((branchChanges) => ({ branch, branchChanges })),
-              ),
-            ),
-          )
+              readDefaultBranch,
+            ]);
+            const branchChanges = yield* readBranchChangeTotals(totalsRoot, branch, {
+              knownOriginDefaultBranch,
+              untrackedFiber,
+            }).pipe(Effect.orElseSucceed(() => undefined));
+            return { branch, branchChanges };
+          }).pipe(Effect.scoped)
         : Effect.succeed(null);
     // diff-index does not read status output, so all five spawn together. A non-repository
     // discards the numstat result below.
@@ -2745,7 +2750,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const untracked = yield* executeGit(
       "GitVcsDriver.review.listUntracked",
       cwd,
-      ["ls-files", "--others", "--exclude-standard", "-z", "--", ...pathArgs],
+      // status, not ls-files: ls-files --others walks ignored folders such as node_modules and
+      // took about 280 ms against 130 ms for status on the same tree. -z with --no-renames gives
+      // one NUL-ended record per path, and the "? " records are the untracked files.
+      ["status", "--porcelain=2", "-z", "--no-renames", "--untracked-files=all", "--", ...pathArgs],
       { maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES },
     ).pipe(
       Effect.catchIf(
@@ -2754,9 +2762,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ),
     );
     if (untracked === null) return null;
-    const paths = splitNullSeparatedGitStdoutPaths(untracked).filter(
-      (candidate) => onlyPath === undefined || candidate === onlyPath,
-    );
+    const paths = splitNullSeparatedGitStdoutPaths(untracked)
+      .filter((record) => record.startsWith("? "))
+      .map((record) => record.slice(2))
+      .filter((candidate) => onlyPath === undefined || candidate === onlyPath);
     if (paths.length === 0) return { env: undefined };
     if (paths.length > REVIEW_UNTRACKED_MAX_FILES) return null;
     const env = yield* prepareReviewIndex(cwd, paths).pipe(
@@ -2822,13 +2831,22 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const readBranchChangeTotals = Effect.fn("readBranchChangeTotals")(function* (
     cwd: string,
     branch: string | null,
-    options?: { readonly knownOriginDefaultBranch: string | null },
+    options?: {
+      readonly knownOriginDefaultBranch: string | null;
+      // A listing the caller started earlier. It must belong to the scope that outlives this call.
+      readonly untrackedFiber?: Fiber.Fiber<
+        Effect.Success<ReturnType<typeof prepareUntrackedReviewIndex>>,
+        Effect.Error<ReturnType<typeof prepareUntrackedReviewIndex>>
+      >;
+    },
   ) {
     // The untracked listing does not depend on the base, and it is the slowest step, so overlap them.
     const [{ baseRef, mergeBase }, untracked] = yield* Effect.all(
       [
         resolveReviewMergeBase(cwd, branch, undefined, options?.knownOriginDefaultBranch ?? null),
-        prepareUntrackedReviewIndex(cwd, []),
+        options?.untrackedFiber
+          ? Fiber.join(options.untrackedFiber)
+          : prepareUntrackedReviewIndex(cwd, []),
       ],
       { concurrency: "unbounded" },
     );
