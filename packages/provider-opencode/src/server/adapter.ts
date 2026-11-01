@@ -66,6 +66,7 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
 import { t3OrchestrationSystemPrompt } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
+import { readableProviderErrorMessage } from "./providerErrorMessage.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
@@ -880,7 +881,14 @@ function providerRef(nativeId: string, strength: "strong" | "weak" = "strong") {
 function openCodeErrorMessage(event: Extract<OpenCodeEvent, { type: "session.error" }>): string {
   const error = event.properties.error;
   if (error === undefined) return "OpenCode session failed without an error payload.";
-  return recordString(error.data, "message") ?? error.name;
+  const statusCode = recordValue(error.data, "statusCode");
+  return (
+    readableProviderErrorMessage(
+      recordString(error.data, "message"),
+      typeof statusCode === "number" ? statusCode : undefined,
+      recordString(error.data, "responseBody"),
+    ) ?? error.name
+  );
 }
 
 function terminalStatusForError(
@@ -2689,13 +2697,17 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                   : [threads.get(event.properties.sessionID)].filter(
                       (state): state is OpenCodeThreadState => state !== undefined,
                     );
-              const message = openCodeErrorMessage(event);
+              const failure = makeProviderFailure({
+                message: openCodeErrorMessage(event),
+                code: event.properties.error?.name ?? null,
+                class: "provider_error",
+              });
               if (
                 !isMessageAbortedError(event) &&
                 (event.properties.sessionID === undefined ||
                   states.some((state) => state.parentSubagent === null))
               ) {
-                yield* updateProviderSession("error", message);
+                yield* updateProviderSession("error", failure.message);
               }
               for (const state of states) {
                 if (state.activeTurn !== null) {
@@ -2704,11 +2716,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                     state.activeTurn,
                     terminalStatusForError(event, state.activeTurn),
                     {
-                      failure: makeProviderFailure({
-                        message,
-                        code: event.properties.error?.name ?? null,
-                        class: "provider_error",
-                      }),
+                      failure,
                       threadDisposition:
                         event.properties.sessionID === undefined ? "broken" : "reusable",
                     },
