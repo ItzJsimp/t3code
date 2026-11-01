@@ -42,7 +42,7 @@ beforeEach(async () => {
   deps = {
     dir,
     isDiscordRunning: async () => false,
-    now: () => new Date("2026-10-31T12:00:00Z"),
+    now: () => "2026-10-31T12:00:00.000Z",
     appendFile: (path, data) => NodeFSP.appendFile(path, data),
   };
 });

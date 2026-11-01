@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - plain async file work on the Discord store: back up, append, verify.
+import * as DateTime from "effect/DateTime";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
@@ -29,7 +30,8 @@ export type AutoSetupResult =
 export interface AutoSetupDeps {
   readonly dir: string;
   readonly isDiscordRunning: () => Promise<boolean>;
-  readonly now: () => Date;
+  /** The current time as an ISO string; named into the backup folder. */
+  readonly now: () => string;
   readonly appendFile: (path: string, data: Buffer) => Promise<void>;
 }
 
@@ -95,7 +97,7 @@ function parseBatch(batch: Buffer): ReadonlyArray<Entry> | undefined {
     if (!keyLength) return undefined;
     const key = batch.subarray(keyLength.next, keyLength.next + keyLength.value);
     at = keyLength.next + keyLength.value;
-    let value = Buffer.alloc(0);
+    let value: Buffer = Buffer.alloc(0);
     if (tag === 1) {
       const valueLength = readVarint(batch, at);
       if (!valueLength) return undefined;
@@ -239,7 +241,7 @@ export const defaultAutoSetupDeps = (): AutoSetupDeps => ({
   dir: discordStoreDir(),
   // shortcut: Windows only, like the rest of the Discord store code. Add macOS with its store path.
   isDiscordRunning: async () => detectRunningApps(await listProcessNames("win32")).discord,
-  now: () => new Date(),
+  now: () => DateTime.formatIso(DateTime.nowUnsafe()),
   appendFile: (path, data) => NodeFSP.appendFile(path, data),
 });
 
@@ -272,7 +274,7 @@ export async function autoSetupDiscordBind(
   const updated = withHiddenBind(keybinds.text);
   if (!updated) return unknown;
 
-  const stamp = deps.now().toISOString().replaceAll(/[:.]/g, "-");
+  const stamp = deps.now().replaceAll(/[:.]/g, "-");
   const backup = NodePath.join(deps.dir, "..", `leonidas-discord-backup-${stamp}`, logName);
   await NodeFSP.mkdir(NodePath.dirname(backup), { recursive: true });
   await NodeFSP.copyFile(logPath, backup);
