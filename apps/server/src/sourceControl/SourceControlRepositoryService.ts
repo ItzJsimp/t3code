@@ -123,7 +123,7 @@ function toRepositoryInfo(
 /**
  * The URL clients see. A pasted `https://user:token@host/…` must not travel
  * back over `subscribeProjectClones` to every reader; git still gets the
- * original.
+ * credentials.
  */
 function redactRemoteUrl(remoteUrl: string): string {
   try {
@@ -143,11 +143,17 @@ function redactRemoteUrl(remoteUrl: string): string {
 
 // Userinfo may itself contain `@`; everything up to the last one before the
 // host boundary goes.
-const URL_WITH_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/]+@/gi;
+const URL_WITH_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]+@/gi;
+// Git leaves quotes inside query tokens unescaped; consume through the closing quote.
+const QUOTED_URL_QUERY = /(['"])([a-z][a-z0-9+.-]*:\/\/[^\s?]*)\?.*\1(?=[\s:]|$)/gi;
+const URL_QUERY = /\b([a-z][a-z0-9+.-]*:\/\/[^\s?]*)\?[^\s]*/gi;
 
 /** Drops `user:token@` from any URL embedded in free text. */
 function redactUrlCredentials(text: string): string {
-  return text.replace(URL_WITH_USERINFO, "$1");
+  return text
+    .replace(QUOTED_URL_QUERY, "$1$2$1")
+    .replace(URL_QUERY, "$1")
+    .replace(URL_WITH_USERINFO, "$1");
 }
 
 function selectRemoteUrl(
@@ -310,6 +316,11 @@ export const make = Effect.gen(function* () {
         if (stderrTail.length > 4) stderrTail.shift();
       });
     };
+    // Git misreads @ in a pathless URL's query as userinfo and echoes its suffix as the host.
+    const normalizedCloneUrl = prepared.cloneUrl.replace(
+      /^([a-z][a-z0-9+.-]*:\/\/[^/?#]+)\?/i,
+      "$1/?",
+    );
     yield* git
       .execute({
         operation: "SourceControlRepositoryService.cloneRepository",
@@ -318,7 +329,7 @@ export const make = Effect.gen(function* () {
           "clone",
           "--progress",
           "--",
-          prepared.cloneUrl,
+          normalizedCloneUrl,
           path.basename(prepared.destinationPath),
         ],
         timeoutMs: options?.timeoutMs === undefined ? CLONE_TIMEOUT_MS : options.timeoutMs,
