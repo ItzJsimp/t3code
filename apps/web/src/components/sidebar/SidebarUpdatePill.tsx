@@ -110,11 +110,11 @@ function SidebarUpdateArchitectureWarningContent() {
   );
 }
 
-export function SidebarUpdatePill() {
-  return isElectron ? <SidebarUpdateControl /> : null;
+export function SidebarUpdatePill({ className }: { readonly className?: string | undefined } = {}) {
+  return isElectron ? <SidebarUpdateControl className={className} /> : null;
 }
 
-function SidebarUpdateControl() {
+function SidebarUpdateControl({ className }: { readonly className?: string | undefined }) {
   const state = useDesktopUpdateState();
   const [isActionPending, setIsActionPending] = useState(false);
   const [checkAnimationKey, setCheckAnimationKey] = useState(0);
@@ -374,7 +374,7 @@ function SidebarUpdateControl() {
   if (!showUpdateDetails) return null;
 
   return (
-    <SidebarMenuItem className="ml-auto shrink-0">
+    <SidebarMenuItem className={cn("ml-auto shrink-0", className)}>
       <Popover
         handle={releaseNotesPopoverHandle}
         onOpenChange={(open, details) => {

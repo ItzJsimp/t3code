@@ -22,7 +22,11 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { APP_VERSION_LABEL } from "~/branding";
+import { openReleaseHistoryDialog } from "~/components/desktop/ReleaseHistoryDialog";
+import { SidebarUpdatePill } from "~/components/sidebar/SidebarUpdatePill";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
+import { SidebarMenu } from "~/components/ui/sidebar";
 import { WorkspaceSwitcher } from "~/components/workspace/WorkspaceSwitcher";
 import { useActiveAiosWorkspace } from "~/components/workspace/useActiveAiosWorkspace";
 import { useWorkspacePictures, WorkspacePicture } from "~/components/workspace/WorkspacePicture";
@@ -125,6 +129,20 @@ export function AppRail({ expanded = false }: { readonly expanded?: boolean }) {
       )}
     >
       <WorkspaceAvatar />
+      {/* The version sits top left on every screen. Tap for what changed in each update. */}
+      <Tip text="Version of Leonidas. See what changed in each update.">
+        <button
+          type="button"
+          aria-label={`Leonidas version ${APP_VERSION_LABEL}. See what changed.`}
+          onClick={openReleaseHistoryDialog}
+          className={cn(
+            "min-w-0 rounded-md text-muted-foreground tabular-nums outline-hidden ring-ring hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset [-webkit-app-region:no-drag]",
+            expanded ? "h-11 px-2.5 text-left text-xs" : "max-w-full truncate px-0.5 text-3xs",
+          )}
+        >
+          {expanded ? `Leonidas v${APP_VERSION_LABEL} · what changed` : `v${APP_VERSION_LABEL}`}
+        </button>
+      </Tip>
       <span role="status" aria-live="polite" className="sr-only">
         {announcement}
       </span>
@@ -139,6 +157,13 @@ export function AppRail({ expanded = false }: { readonly expanded?: boolean }) {
         data-expanded={expanded}
       >
         {bottom.map(renderItem)}
+        {/* Shows only while an update is on its way, directly under Settings. */}
+        <SidebarMenu
+          className="items-center empty:hidden data-[expanded=true]:items-start"
+          data-expanded={expanded}
+        >
+          <SidebarUpdatePill className="ml-0" />
+        </SidebarMenu>
       </div>
     </nav>
   );
