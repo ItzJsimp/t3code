@@ -125,3 +125,18 @@ Changes (branch `upstream-port/2026-10-30`, commit `963c9455dc`, not pushed):
 - **Not reached:** the target of 300 ms. A first status still takes about 700 to 800 ms in quiet pairs.
 - **What remains in the critical path:** repository detection before `status` starts (5 serial small `rev-parse` and `symbolic-ref` calls, about 150 to 210 ms), then `status` itself (about 190 to 330 ms), then the `ls-files --others` scan (about 280 ms, 0 bytes of output in the test folders), then the totals diff (about 85 ms).
 - **Wider fix (Jake chose it, 2026-10-31):** every command that exits non-zero on Windows paid the same `taskkill` wait. That includes `show-ref --verify` on a missing remote branch, `remote get-url` with no `origin`, `symbolic-ref` on a detached HEAD, and failing provider and tool commands. A pnpm patch of `@effect/platform-node-shared` (`patches/@effect__platform-node-shared@4.0.2.patch`, commit `8c3e3911a5`) skips both taskkill calls when the child already exited, on Windows only. Other platforms and explicit kills are unchanged. Measured with the real spawner and git (9 runs each): exit 1 took 189 ms median before and 31 ms after. Exit 0 took 22 to 31 ms in both. A new Effect upgrade needs the patch re-made: `pnpm patch @effect/platform-node-shared@<version>`, and check that lines `code !== 0` in `NodeChildProcessSpawner.js` still match.
+
+## Step 4: untracked list from status, and two levers that did not pay (2026-10-31)
+
+Branch `perf/git-status-prelude` in `C:/lcw/up-port`. Bench: 6 adjacent pairs per lever, first status of 6 folders (`C:/lcw/p5/git-bench.mjs`), whole file swapped between runs.
+
+| Lever | Change                                                               | Median pair difference | Pairs faster | Verdict                                                                   |
+| ----- | -------------------------------------------------------------------- | ---------------------- | ------------ | ------------------------------------------------------------------------- |
+| (c)   | Start the untracked scan beside `status`                             | -20 ms                 | 4 of 6       | Weak, inside noise. Kept (no extra work).                                 |
+| (b)   | Run the repository path calls together                               | -48 ms                 | 3 of 6       | No proof. Dropped. It adds 2 spawns in a non-repository and broke a test. |
+| (d)   | List untracked files with `status -z -uall`, not `ls-files --others` | -110 ms                | 5 of 6       | Kept. Pooled median 630 to 515 ms.                                        |
+
+- **Why (d) works:** `ls-files --others --exclude-standard` took about 280 ms and `status -uall` about 130 ms for the same list (6 folders, same counts). `ls-files` is slower, probably because it walks ignored folders such as `node_modules`.
+- **Checks:** `vp test run src/vcs/GitVcsDriverCore.test.ts src/vcs/GitVcsDriver.test.ts`: 211 pass, 3 skipped. `tsc --noEmit` in `apps/server`: 0 errors. A mock in `reads complete tracked and untracked manifests beyond 1 MB` matched `ls-files`, so it was vacuous after (d): it now matches the new `status` call. New test: untracked names with spaces and non-ASCII.
+- **Risk:** the totals now run a second `git status` beside the main one. In an LFS repo with stat-dirty files, the clean filters run twice. `ls-files` did not run them.
+- **Not reached:** the target of 300 ms. First status is about 500 ms now.
