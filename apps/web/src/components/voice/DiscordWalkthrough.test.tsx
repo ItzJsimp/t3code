@@ -119,3 +119,15 @@ it("never shows the tip when the bind exists or Discord is closed", async () => 
   });
   expect(await shouldShowDiscordTip()).toBe(false);
 });
+
+it("names the key the platform helper sends", async () => {
+  bridge.discordSetupStatus.mockResolvedValue({
+    discordRunning: true,
+    wisprRunning: false,
+    hiddenKey: "F19",
+    bind: "unknown",
+  });
+  await open();
+  expect(text()).toContain("F19");
+  expect(text()).not.toContain("F24");
+});

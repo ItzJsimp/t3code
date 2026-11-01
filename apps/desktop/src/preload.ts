@@ -217,6 +217,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   dictationEnded: () => ipcRenderer.invoke(IpcChannels.DICTATION_ENDED_CHANNEL, undefined),
   discordSetupStatus: () => ipcRenderer.invoke(IpcChannels.DISCORD_SETUP_STATUS_CHANNEL, undefined),
   tapDiscordKey: () => ipcRenderer.invoke(IpcChannels.TAP_DISCORD_KEY_CHANNEL, undefined),
+  dictationStarted: () => ipcRenderer.invoke(IpcChannels.DICTATION_STARTED_CHANNEL, undefined),
+  pauseDictationHotkey: (paused: boolean) =>
+    ipcRenderer.invoke(IpcChannels.PAUSE_DICTATION_HOTKEY_CHANNEL, paused),
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;

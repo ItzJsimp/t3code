@@ -59,6 +59,13 @@ export function DictationTriggerSettings() {
   const latest = useRef({ current, updateSettings });
   latest.current = { current, updateSettings };
 
+  // The global hook would eat the very keys being recorded, and start a dictation.
+  useEffect(() => {
+    if (recording === null) return;
+    void window.desktopBridge?.pauseDictationHotkey?.(true);
+    return () => void window.desktopBridge?.pauseDictationHotkey?.(false);
+  }, [recording]);
+
   useEffect(() => {
     if (recording === null) return;
     let state: RecorderState = { mods: [] };

@@ -34,7 +34,11 @@ export const setClientSettings = DesktopIpc.makeIpcMethod({
     const { platform } = yield* DesktopEnvironment.DesktopEnvironment;
     const before = dictationConfigFromSettings(
       platform,
-      Option.getOrElse(yield* clientSettings.get, () => DEFAULT_CLIENT_SETTINGS),
+      // A corrupt file must not block the save that would repair it.
+      Option.getOrElse(
+        yield* clientSettings.get.pipe(Effect.orElseSucceed(() => Option.none())),
+        () => DEFAULT_CLIENT_SETTINGS,
+      ),
     );
     yield* clientSettings.set(settings);
     yield* snapShot.configure(settings);

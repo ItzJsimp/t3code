@@ -1143,6 +1143,8 @@ export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 export interface DiscordSetupStatus {
   readonly discordRunning: boolean;
   readonly wisprRunning: boolean;
+  /** The hidden key Discord must record: F24 on Windows, F19 on macOS. */
+  readonly hiddenKey: string;
   /** done: the hidden bind exists. missing: it does not. unknown: the Discord store could not be read. */
   readonly bind: "done" | "missing" | "unknown";
 }
@@ -1269,6 +1271,10 @@ export interface DesktopBridge {
   discordSetupStatus?: () => Promise<DiscordSetupStatus>;
   /** Taps the hidden Discord key (F24) once, so Discord's keybind recorder can capture it. */
   tapDiscordKey?: () => Promise<void>;
+  /** A composer took the OS-wide start action. Without it the hook ends the dictation after 3 s, so Discord is not left muted. */
+  dictationStarted?: () => Promise<void>;
+  /** The Settings recorder is capturing keys: stop matching the global triggers until resumed. */
+  pauseDictationHotkey?: (paused: boolean) => Promise<void>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   onSnapShotEvent?: (listener: (event: DesktopSnapShotEvent) => void) => () => void;
   /**

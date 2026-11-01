@@ -7,7 +7,6 @@ import * as Schema from "effect/Schema";
 
 import { DEFAULT_CLIENT_SETTINGS, type DesktopServerExposureMode } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
-import { resolveDictationTriggers } from "@t3tools/shared/dictationTrigger";
 import * as Crypto from "effect/Crypto";
 import * as Electron from "electron";
 import { CAPTURE_MENU_ACTION, registerCaptureHotkey } from "../capture/DesktopCaptureHotkey.ts";
@@ -222,10 +221,10 @@ const bootstrap = Effect.gen(function* () {
   if (environment.platform === "win32" || environment.platform === "darwin") {
     yield* Effect.gen(function* () {
       const hostEnvironment = yield* HostProcess.Environment;
-      const helper =
+      const spawnHelper =
         environment.platform === "darwin"
-          ? yield* DictationHotkey.spawnMacInputHook(hostEnvironment)
-          : yield* DictationHotkey.spawnWindowsInputHook(hostEnvironment);
+          ? DictationHotkey.spawnMacInputHook(hostEnvironment)
+          : DictationHotkey.spawnWindowsInputHook(hostEnvironment);
       // The tap needs Accessibility. Ask once per launch; the helper keeps retrying, so no restart.
       if (
         environment.platform === "darwin" &&
@@ -239,7 +238,7 @@ const bootstrap = Effect.gen(function* () {
       }
       // A missing or unreadable settings file means the defaults.
       const saved = yield* clientSettings.get.pipe(Effect.orElseSucceed(() => Option.none()));
-      yield* DictationHotkey.runDictationHotkey(helper, {
+      yield* DictationHotkey.superviseDictationHotkey(spawnHelper, {
         ...DictationHotkey.dictationConfigFromSettings(
           environment.platform,
           Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS),

@@ -69,7 +69,7 @@ public static class LeonidasDictationHook {
       else if (p == "shift") t.Mods |= SHIFT; else if (p == "win") t.Mods |= WIN;
       else if (p == "space") t.Vk = 0x20;
       else if (p == "mouse4") t.Button = 4; else if (p == "mouse5") t.Button = 5; else if (p == "middle") t.Button = 3;
-      else if (p.Length > 1 && p[0] == 'f') t.Vk = 0x6F + int.Parse(p.Substring(1));
+      else if (p.Length > 1 && p[0] == 'f') { int n; if (!int.TryParse(p.Substring(1), out n) || n < 1 || n > 24) return null; t.Vk = 0x6F + n; }
       else if (p.Length == 1 && char.IsLetterOrDigit(p[0])) t.Vk = char.ToUpperInvariant(p[0]);
       else return null;
     }

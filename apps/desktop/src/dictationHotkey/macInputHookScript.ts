@@ -62,6 +62,11 @@ func relevantMods(_ f: CGEventFlags) -> Int {
   return m
 }
 
+// F-keys and arrow keys carry the Fn flag without Fn being pressed, so a trigger that does not ask for Fn ignores it.
+func modsMatch(_ want: Int, _ have: Int) -> Bool {
+  return have == want || ((want & FN) == 0 && (have & ~FN) == want)
+}
+
 func parse(_ name: String, _ combo: String) -> Trigger? {
   let t = Trigger(name: name)
   for raw in combo.split(separator: "+") {
@@ -122,7 +127,7 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
   case .keyDown:
     let code = event.getIntegerValueField(.keyboardEventKeycode)
     if eaten[code] != nil { return nil }  // auto-repeat of an eaten trigger
-    if let t = triggers.first(where: { $0.key == code && $0.mods == eventMods }) {
+    if let t = triggers.first(where: { $0.key == code && modsMatch($0.mods, eventMods) }) {
       eaten[code] = t
       emit("down \(t.name)")
       return nil
@@ -133,7 +138,7 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
     if let t = eaten.removeValue(forKey: code) { emit("up \(t.name)"); return nil }
   case .otherMouseDown:
     let button = event.getIntegerValueField(.mouseEventButtonNumber)
-    if let t = triggers.first(where: { $0.button == button && $0.mods == eventMods }) {
+    if let t = triggers.first(where: { $0.button == button && modsMatch($0.mods, eventMods) }) {
       eaten[-(button + 1)] = t
       emit("down \(t.name)")
       return nil

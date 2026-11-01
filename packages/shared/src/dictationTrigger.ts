@@ -22,6 +22,10 @@ export type DictationTriggers = Readonly<Record<DictationTriggerName, string>>;
 /** Held down in Discord as Push to Mute while dictation runs. A plain key, so typing is unchanged. */
 export const DISCORD_MUTE_KEY = "F24";
 
+/** macOS has no F24 key code, so its helper holds F19 instead. */
+export const hiddenKeyFor = (platform: string): string =>
+  platform === "darwin" ? "F19" : DISCORD_MUTE_KEY;
+
 export const idleDictationTrigger: DictationTriggerState = { kind: "idle" };
 
 const IDLE = { state: idleDictationTrigger } as const;
@@ -47,7 +51,9 @@ export function stepDictationTrigger(
         ? { state: { kind: "holding", trigger: event.trigger }, action: "start" }
         : { state: { kind: "toggled" }, action: "start" };
     case "toggled":
-      return { ...IDLE, action: "stop" };
+      // Ctrl+Win is the first half of Ctrl+Win+Space: stopping on it would stop, then the Space
+      // would start again. The stop comes with the full toggle shortcut (or the mouse button).
+      return event.trigger === "hold" ? { state } : { ...IDLE, action: "stop" };
     case "holding":
       // Ctrl+Win then Space: keep the running dictation, now hands-free.
       return holdStyle ? { state } : { state: { kind: "toggled" } };

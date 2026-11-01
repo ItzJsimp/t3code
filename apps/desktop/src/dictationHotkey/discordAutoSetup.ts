@@ -234,7 +234,8 @@ function withHiddenBind(text: string): string | undefined {
     params: {},
   };
   const result = JSON.stringify(state);
-  return /^[\u0000-ÿ]*$/.test(result) ? result : undefined;
+  // Stored as Latin-1 text: a character above U+00FF would not fit.
+  return [...result].every((char) => char.charCodeAt(0) <= 0xff) ? result : undefined;
 }
 
 export const defaultAutoSetupDeps = (): AutoSetupDeps => ({
@@ -276,8 +277,12 @@ export async function autoSetupDiscordBind(
 
   const stamp = deps.now().replaceAll(/[:.]/g, "-");
   const backup = NodePath.join(deps.dir, "..", `leonidas-discord-backup-${stamp}`, logName);
-  await NodeFSP.mkdir(NodePath.dirname(backup), { recursive: true });
-  await NodeFSP.copyFile(logPath, backup);
+  try {
+    await NodeFSP.mkdir(NodePath.dirname(backup), { recursive: true });
+    await NodeFSP.copyFile(logPath, backup);
+  } catch {
+    return { status: "failed", restored: true }; // nothing was written, so nothing to restore
+  }
   try {
     const value = Buffer.concat([Buffer.of(LATIN1_VALUE_MARKER), Buffer.from(updated, "latin1")]);
     await deps.appendFile(

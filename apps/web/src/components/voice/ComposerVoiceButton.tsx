@@ -73,6 +73,8 @@ export function ComposerVoiceButton({
       if (viaGlobal) void window.desktopBridge?.dictationEnded?.();
       return;
     }
+    // Tells the desktop hook a composer owns this dictation; without it the hook ends it itself.
+    if (viaGlobal) void window.desktopBridge?.dictationStarted?.();
     busy.current = true;
     opening.current = true;
     setError("");

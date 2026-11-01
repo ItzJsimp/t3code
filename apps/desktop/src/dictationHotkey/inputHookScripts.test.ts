@@ -17,3 +17,15 @@ describe("input hook helper scripts", () => {
     expect(script).toMatch(/up /);
   });
 });
+
+describe("helper parsing", () => {
+  it("the Windows helper does not throw on a non-numeric F token", () => {
+    expect(WINDOWS_INPUT_HOOK_SCRIPT).not.toContain("int.Parse(");
+    expect(WINDOWS_INPUT_HOOK_SCRIPT).toContain("int.TryParse(");
+  });
+
+  it("the macOS helper ignores the Fn flag unless a trigger asks for it", () => {
+    expect(MAC_INPUT_HOOK_SCRIPT).toContain("modsMatch(");
+    expect(MAC_INPUT_HOOK_SCRIPT).not.toContain("$0.mods == eventMods");
+  });
+});

@@ -164,6 +164,18 @@ describe("autoSetupDiscordBind", () => {
     expect((await NodeFSP.readFile(logPath())).equals(original)).toBe(true);
   });
 
+  it("returns failed, and writes nothing, when the backup cannot be made", async () => {
+    const original = logOf(PRE);
+    await write(original);
+    // A file where the backup folder must go makes mkdir fail.
+    await NodeFSP.writeFile(
+      NodePath.join(NodePath.dirname(dir), "leonidas-discord-backup-2026-10-31T12-00-00-000Z"),
+      "in the way",
+    );
+    expect(await autoSetupDiscordBind(deps)).toEqual({ status: "failed", restored: true });
+    expect((await NodeFSP.readFile(logPath())).equals(original)).toBe(true);
+  });
+
   it("restores the backup when the write fails part way", async () => {
     const original = logOf(PRE);
     await write(original);

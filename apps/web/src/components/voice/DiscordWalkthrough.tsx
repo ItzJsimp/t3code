@@ -45,6 +45,7 @@ export function DiscordWalkthrough({
     return () => clearTimeout(timer);
   }, [counting, check]);
   const done = status?.bind === "done";
+  const hiddenKey = status?.hiddenKey ?? "F24";
   // This component stays mounted when the dialog closes, so stop a running countdown here.
   const change = (next: boolean) => {
     if (!next) setCounting(0);
@@ -84,7 +85,7 @@ export function DiscordWalkthrough({
                 </li>
                 <li>
                   Click <strong>Send the key</strong> below. Then click back to Discord. Discord
-                  shows <strong>F24</strong>. Click <strong>Stop Recording</strong>.
+                  shows <strong>{hiddenKey}</strong>. Click <strong>Stop Recording</strong>.
                 </li>
               </ol>
               <Button
@@ -96,7 +97,8 @@ export function DiscordWalkthrough({
                 {counting > 0 ? `Sending in ${counting}...` : "Send the key"}
               </Button>
               <p className="text-xs text-muted-foreground">
-                Your keyboard has no F24 key. Leonidas presses it for you after a short countdown.
+                Your keyboard has no {hiddenKey} key. Leonidas presses it for you after a short
+                countdown.
               </p>
               {status?.wisprRunning && (
                 <p role="status" className="text-sm">

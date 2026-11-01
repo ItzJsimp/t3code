@@ -4,6 +4,7 @@ import {
   DISCORD_MUTE_KEY,
   defaultDictationTriggers,
   findTriggerConflict,
+  hiddenKeyFor,
   resolveDictationTriggers,
   idleDictationTrigger,
   stepDictationTrigger,
@@ -127,5 +128,32 @@ describe("resolveDictationTriggers", () => {
   it("falls back to all defaults when the saved set conflicts", () => {
     const saved = { toggle: "Ctrl+Win", hold: "Win+Ctrl", mouse: "" };
     expect(resolveDictationTriggers("win32", saved)).toEqual(defaultDictationTriggers("win32"));
+  });
+});
+
+describe("the default toggle shortcut is built on the hold shortcut", () => {
+  it("pressing Ctrl+Win then Space while dictating stops once, with no restart", () => {
+    expect(
+      run([
+        { type: "down", trigger: "toggle" }, // start (toggle shortcut)
+        { type: "down", trigger: "hold" }, // Ctrl+Win of the stop press: ignored
+        { type: "down", trigger: "toggle" }, // Space: stop
+        { type: "up", trigger: "toggle" },
+        { type: "up", trigger: "hold" },
+      ]),
+    ).toEqual(["start", "stop"]);
+  });
+
+  it("the mouse button still stops a hands-free dictation in hold mode", () => {
+    expect(
+      stepDictationTrigger({ kind: "toggled" }, { type: "down", trigger: "mouse" }, "hold").action,
+    ).toBe("stop");
+  });
+});
+
+describe("hiddenKeyFor", () => {
+  it("is F24 on Windows and F19 on macOS", () => {
+    expect(hiddenKeyFor("win32")).toBe("F24");
+    expect(hiddenKeyFor("darwin")).toBe("F19");
   });
 });
