@@ -390,6 +390,7 @@ interface OpenCodeThreadState {
   parentSubagent: OpenCodeSubagentContext | null;
   nextChildTurnOrdinal: number;
   nextAdmissionGeneration: number;
+  permission: PermissionRuleset;
 }
 
 interface OpenCodeRequestOwner {
@@ -1432,6 +1433,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               parentSubagent: context,
               nextChildTurnOrdinal: 1,
               nextAdmissionGeneration: 1,
+              permission: childPermission,
             });
             yield* emitProviderEvent({
               type: "app_thread.created",
@@ -2824,6 +2826,8 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           if (existing !== undefined) {
             existing.providerThread = providerThread;
             if (appThread !== null) existing.appThread = appThread;
+            if (nativeSession.permission !== undefined)
+              existing.permission = nativeSession.permission;
             return existing;
           }
           const state: OpenCodeThreadState = {
@@ -2838,10 +2842,28 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             parentSubagent: subagentsByChildSessionId.get(nativeSession.id) ?? null,
             nextChildTurnOrdinal: 1,
             nextAdmissionGeneration: 1,
+            permission: nativeSession.permission ?? [],
           };
           threads.set(nativeSession.id, state);
           return state;
         };
+
+        const applyPermissionRules = Effect.fnUntraced(function* (
+          state: OpenCodeThreadState,
+          policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
+        ) {
+          const permission = openCodePermissionRules(policy);
+          if (
+            permission.length === state.permission.length &&
+            permission.every((rule, index) => permissionRuleEquals(rule, state.permission[index]!))
+          ) {
+            return;
+          }
+          yield* sdkCall("session.update", { sessionID: state.nativeSessionId, permission }, () =>
+            client.session.update({ sessionID: state.nativeSessionId, permission }),
+          );
+          state.permission = permission;
+        });
 
         const resolvePromptParts = (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) => {
           const text = providerMessageTextWithAttachmentPaths({
@@ -3039,15 +3061,11 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                   providerThread: threadInput.existingProviderThread,
                 });
               }
+              const permission = openCodePermissionRules(threadInput.runtimePolicy);
               // No title: OpenCode generates one from the first prompt only when
               // session.create leaves it unset (SessionPrompt.ensureTitle).
-              const response = yield* sdkCall(
-                "session.create",
-                { permission: openCodePermissionRules(threadInput.runtimePolicy) },
-                () =>
-                  client.session.create({
-                    permission: openCodePermissionRules(threadInput.runtimePolicy),
-                  }),
+              const response = yield* sdkCall("session.create", { permission }, () =>
+                client.session.create({ permission }),
               );
               const nativeSession = unwrapData("session.create", response);
               const createdAt = yield* DateTime.now;
@@ -3074,7 +3092,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                       status: created.status,
                       updatedAt: created.updatedAt,
                     };
-              registerThread(nativeSession, providerThread, null);
+              registerThread(nativeSession, providerThread, null).permission = permission;
               return providerThread;
             }).pipe(
               Effect.mapError(
@@ -3100,7 +3118,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 status: "idle" as const,
                 updatedAt: dateTimeFromEpoch(nativeSession.time.updated, resumedAt),
               };
-              registerThread(nativeSession, providerThread, null);
+              const state = registerThread(nativeSession, providerThread, null);
+              if (threadInput.runtimePolicy !== undefined) {
+                yield* applyPermissionRules(state, threadInput.runtimePolicy);
+              }
               return providerThread;
             }).pipe(
               Effect.mapError(
@@ -3143,6 +3164,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                   `OpenCode model '${turnInput.modelSelection.model}' must use provider/model format`,
                 );
               }
+              yield* applyPermissionRules(state, turnInput.runtimePolicy);
               const isCompaction =
                 turnInput.message.text.trim() === "/compact" &&
                 turnInput.message.attachments.length === 0;

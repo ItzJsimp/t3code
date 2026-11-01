@@ -186,6 +186,7 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
   const startTurn = (
     text = "hello",
     startProviderThread: OrchestrationV2ProviderThread = providerThread,
+    turnPolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy = policy,
   ) =>
     runtime.startTurn({
       appThread: {
@@ -226,7 +227,7 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
         attachments: [],
       },
       modelSelection,
-      runtimePolicy: policy,
+      runtimePolicy: turnPolicy,
     });
   return {
     nativeSessionId,
@@ -241,6 +242,62 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
 });
 
 describe("OpenCodeAdapterV2", () => {
+  it.effect("applies a changed runtime policy to the session on resume and turn start", () =>
+    Effect.gen(function* () {
+      const updates: Array<{ sessionID: string; permission: unknown }> = [];
+      const fullAccess = runtimePolicy("full-access", { cwd: "/workspace" });
+      const supervised = runtimePolicy("approval-required", { cwd: "/workspace" });
+      const harness = yield* makeOpenCodeRuntimeHarness("policy-change", "root", {
+        event: { subscribe: async () => ({ stream: asyncEventStream().stream }) },
+        session: {
+          create: async (input: { permission: unknown }) => ({
+            data: {
+              id: "root",
+              permission: input.permission,
+              time: { created: 1, updated: 1 },
+            },
+          }),
+          get: async () => ({
+            data: {
+              id: "root",
+              permission: openCodePermissionRules(fullAccess),
+              time: { created: 1, updated: 1 },
+            },
+          }),
+          update: async (input: { sessionID: string; permission: unknown }) => {
+            updates.push(input);
+            return { data: { id: input.sessionID, time: { created: 1, updated: 2 } } };
+          },
+          promptAsync: async () => ({ data: true }),
+          abort: async () => ({ data: true }),
+          children: async () => ({ data: [] }),
+        },
+      });
+
+      yield* harness.runtime.resumeThread({
+        providerThread: harness.providerThread,
+        runtimePolicy: fullAccess,
+      });
+      assert.deepStrictEqual(updates, []);
+
+      yield* harness.runtime.resumeThread({
+        providerThread: harness.providerThread,
+        runtimePolicy: supervised,
+      });
+      assert.deepStrictEqual(updates, [
+        { sessionID: "root", permission: openCodePermissionRules(supervised) },
+      ]);
+
+      yield* harness.startTurn("hello", harness.providerThread, fullAccess);
+      assert.deepStrictEqual(updates.slice(1), [
+        { sessionID: "root", permission: openCodePermissionRules(fullAccess) },
+      ]);
+    }).pipe(
+      Effect.provide(Layer.merge(IdAllocator.layer, McpProviderSessions.layer)),
+      Effect.scoped,
+    ),
+  );
+
   it.effect.each(["completed", "failed", "unresolved", "unavailable", "reconnect"] as const)(
     "normalizes OpenCode step usage for %s turns",
     (ending) =>
