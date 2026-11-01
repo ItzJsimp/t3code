@@ -1921,6 +1921,88 @@ describe("AcpAdapterV2", () => {
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
+  it.effect("advertises ACP session notices and shows them as system notices", () =>
+    Effect.gen(function* () {
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const path = yield* Path.Path;
+      const selfInvocation = yield* resolveSelfInvocation();
+      const mockAgentPath = yield* path.fromFileUrl(
+        new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+      );
+      const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+      const instanceId = ProviderInstanceId.make("acp-test-notice");
+      const adapter = yield* makeAcpAdapterV2({
+        instanceId,
+        flavor: {
+          driver: ACP_TEST_DRIVER,
+          capabilities: AcpProviderCapabilitiesV2,
+          makeRuntime: makeMockRuntime({
+            childProcessSpawner,
+            mockAgentPath,
+            protocolEvents,
+            environment: { T3_ACP_EMIT_NOTICE: "1" },
+          }),
+        },
+        selfInvocation,
+      });
+      const threadId = ThreadId.make("thread-acp-notice");
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: process.cwd(),
+      });
+      const modelSelection = { instanceId, model: "default" } as const;
+      const runtime = yield* adapter.openSession({
+        threadId,
+        providerSessionId: ProviderSessionId.make("provider-session-acp-notice"),
+        modelSelection,
+        runtimePolicy,
+      });
+      const providerThread = yield* runtime.ensureThread({
+        threadId,
+        modelSelection,
+        runtimePolicy,
+      });
+      const now = yield* DateTime.now;
+      yield* runtime.startTurn(
+        makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now, ordinal: 1 }),
+      );
+      const items = Array.from(
+        yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        ),
+      ).flatMap((event) => (event.type === "turn_item.updated" ? [event.turnItem] : []));
+
+      const initialize = Array.from(yield* Queue.takeAll(protocolEvents)).find(
+        (event) => event.direction === "outgoing" && rawProtocolMethod(event) === "initialize",
+      );
+      assert.deepEqual(
+        initialize === undefined
+          ? undefined
+          : Reflect.get(
+              Object(rawProtocolRequestParam(initialize, "clientCapabilities")),
+              "session",
+            ),
+        { notices: {} },
+      );
+      const title =
+        "skill discovery warning: candidate was skipped because its metadata is invalid";
+      assert.deepEqual(
+        items.flatMap((item) => (item.type === "system_notice" ? [item.message] : [])),
+        [title],
+      );
+      const replies = new Map(
+        items.flatMap((item) => (item.type === "assistant_message" ? [[item.id, item.text]] : [])),
+      );
+      assert.deepEqual(
+        [...replies.values()],
+        ["before the notice, after the notice"],
+        "a notice neither joins the reply nor splits it",
+      );
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
   it.effect("projects ACP v2 fidelity updates into first-class orchestration items", () =>
     Effect.gen(function* () {
       const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -2116,6 +2198,70 @@ describe("AcpAdapterV2", () => {
         afterOmittedPatch.messages.some((message) => message.text === "late authoritative text"),
         "omitted late message content must preserve the authoritative text",
       );
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
+  it.effect("projects only the tail of long ACP terminal output", () =>
+    Effect.gen(function* () {
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const path = yield* Path.Path;
+      const mockAgentPath = yield* path.fromFileUrl(
+        new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+      );
+      const instanceId = ProviderInstanceId.make("acp-test-long-terminal");
+      const adapter = yield* makeAcpAdapterV2({
+        instanceId,
+        flavor: {
+          driver: ACP_TEST_DRIVER,
+          capabilities: AcpProviderCapabilitiesV2,
+          makeRuntime: makeMockRuntime({
+            childProcessSpawner,
+            mockAgentPath,
+            environment: { T3_ACP_EMIT_TERMINAL_OUTPUT_BYTES: String(1024 * 1024) },
+          }),
+        },
+        selfInvocation: yield* resolveSelfInvocation(),
+      });
+      const threadId = ThreadId.make("thread-acp-long-terminal");
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: process.cwd(),
+      });
+      const modelSelection = { instanceId, model: "default" } as const;
+      const runtime = yield* adapter.openSession({
+        threadId,
+        providerSessionId: ProviderSessionId.make("provider-session-acp-long-terminal"),
+        modelSelection,
+        runtimePolicy,
+      });
+      const providerThread = yield* runtime.ensureThread({
+        threadId,
+        modelSelection,
+        runtimePolicy,
+      });
+      const now = yield* DateTime.now;
+      yield* runtime.startTurn(
+        makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now, ordinal: 1 }),
+      );
+      const outputs = Array.from(
+        yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        ),
+      ).flatMap((event) =>
+        event.type === "turn_item.updated" && event.turnItem.type === "command_execution"
+          ? [event.turnItem.output ?? ""]
+          : [],
+      );
+      const fullOutput = Array.from(
+        { length: (1024 * 1024) / 64 },
+        (_, index) => `${String(index + 1).padStart(8, "0")} ${"x".repeat(54)}\n`,
+      ).join("");
+
+      assert.isAtLeast(outputs.length, 2);
+      assert.isAtMost(Math.max(...outputs.map((output) => output.length)), 320 * 1024);
+      assert.equal(outputs.at(-1), fullOutput.slice(-320 * 1024));
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
@@ -3031,6 +3177,155 @@ describe("AcpAdapterV2", () => {
         providerThread,
         providerTurnId: pending.runtimeRequest.providerTurnId,
       });
+      yield* Fiber.join(turnFiber);
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
+  it.effect.each([
+    {
+      label: "grants an ID-only execute approval its tracked command",
+      kind: "execute",
+      granted: true,
+    },
+    {
+      label: "does not grant execution to an ID-only approval of another tool",
+      kind: "other",
+      granted: false,
+    },
+  ] as const)("$label", ({ kind, granted }) =>
+    Effect.gen(function* () {
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const path = yield* Path.Path;
+      const selfInvocation = yield* resolveSelfInvocation();
+      const mockAgentPath = yield* path.fromFileUrl(
+        new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+      );
+      type RuntimeService = AcpSessionRuntime.AcpSessionRuntime["Service"];
+      let requestPermission: Parameters<RuntimeService["handleRequestPermission"]>[0] | undefined;
+      let createTerminal: Parameters<RuntimeService["handleCreateTerminal"]>[0] | undefined;
+      let runtimeInput: AcpAdapterV2RuntimeInput | undefined;
+      const makeRuntime = makeMockRuntime({
+        childProcessSpawner,
+        mockAgentPath,
+        environment: { T3_ACP_EMIT_TRACKED_TOOL_CALL_KIND_THEN_HANG: kind },
+        wrapRuntime: (runtime) => ({
+          ...runtime,
+          handleRequestPermission: (handler) =>
+            Effect.sync(() => {
+              requestPermission = handler;
+            }).pipe(Effect.andThen(runtime.handleRequestPermission(handler))),
+          handleCreateTerminal: (handler) =>
+            Effect.sync(() => {
+              createTerminal = handler;
+            }).pipe(Effect.andThen(runtime.handleCreateTerminal(handler))),
+        }),
+      });
+      const instanceId = ProviderInstanceId.make("acp-test-id-only-permission");
+      const adapter = yield* makeAcpAdapterV2({
+        instanceId,
+        flavor: {
+          driver: ACP_TEST_DRIVER,
+          capabilities: AcpProviderCapabilitiesV2,
+          interruptPromptOnCancel: true,
+          makeRuntime: (input) =>
+            Effect.sync(() => {
+              runtimeInput = input;
+            }).pipe(Effect.andThen(makeRuntime(input))),
+        },
+        selfInvocation,
+        clientTerminals: {},
+      });
+      const threadId = ThreadId.make("thread-acp-id-only-permission");
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        cwd: process.cwd(),
+      });
+      const modelSelection = { instanceId, model: "default" } as const;
+      const runtime = yield* adapter.openSession({
+        threadId,
+        providerSessionId: ProviderSessionId.make("provider-session-acp-id-only-permission"),
+        modelSelection,
+        runtimePolicy,
+      });
+      const providerThread = yield* runtime.ensureThread({
+        threadId,
+        modelSelection,
+        runtimePolicy,
+      });
+      const turnFiber = yield* runtime
+        .startTurn(
+          makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            runtimePolicy,
+            now: yield* DateTime.now,
+          }),
+        )
+        .pipe(Effect.forkScoped);
+      if (requestPermission === undefined || createTerminal === undefined) {
+        return yield* Effect.die("ACP runtime must register permission and terminal handlers");
+      }
+      yield* runtime.events.pipe(
+        Stream.filter(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.nativeItemRef?.nativeId === "tracked-tool-call",
+        ),
+        Stream.runHead,
+      );
+
+      const permissionFiber = yield* requestPermission(
+        {
+          sessionId: "mock-session-1",
+          toolCall: { toolCallId: "tracked-tool-call" },
+          options: [{ optionId: "allow-once", name: "Allow once", kind: "allow_once" }],
+        },
+        { requestId: "id-only-permission-request", method: "session/request_permission" },
+      ).pipe(Effect.forkScoped);
+      const approvalEvent = Option.getOrThrow(
+        yield* runtime.events.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "turn_item.updated" && event.turnItem.type === "approval_request",
+          ),
+          Stream.runHead,
+        ),
+      );
+      if (
+        approvalEvent.type !== "turn_item.updated" ||
+        approvalEvent.turnItem.type !== "approval_request" ||
+        approvalEvent.turnItem.providerTurnId === null
+      ) {
+        return yield* Effect.die("Expected an ACP approval request");
+      }
+      const approval = approvalEvent.turnItem;
+      const providerTurnId = approvalEvent.turnItem.providerTurnId;
+      const responseFiber = yield* runtime
+        .respondToRuntimeRequest({ requestId: approval.requestId, decision: "accept" })
+        .pipe(Effect.forkScoped);
+      assert.equal((yield* Fiber.join(permissionFiber)).outcome.outcome, "selected");
+      if (runtimeInput?.onOutgoingResponse === undefined) {
+        return yield* Effect.die("ACP runtime must expose native response acknowledgements");
+      }
+      yield* runtimeInput.onOutgoingResponse("id-only-permission-request");
+      yield* Fiber.join(responseFiber);
+
+      const terminalExit = yield* createTerminal(
+        {
+          sessionId: "mock-session-1",
+          command: process.execPath,
+          args: ["-e", ""],
+        },
+        { requestId: "id-only-permission-terminal", method: "terminal/create" },
+      ).pipe(Effect.exit);
+      assert.deepEqual(
+        { prompt: approval.prompt, terminalCreated: Exit.isSuccess(terminalExit) },
+        { prompt: "git status", terminalCreated: granted },
+      );
+
+      yield* runtime.interruptTurn({ providerThread, providerTurnId });
       yield* Fiber.join(turnFiber);
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );

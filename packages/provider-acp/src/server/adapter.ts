@@ -43,6 +43,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import { expandSkillMentionsFromDisk } from "@t3tools/provider-core/server/skillMentions";
@@ -74,6 +75,7 @@ import {
   parsePermissionRequest,
   parseSessionUpdateEvent,
   toolCallVisibleOutputChanged,
+  withTrackedPermissionToolCall,
   type AcpPlanUpdate,
   type AcpAgentTerminalState,
   type AcpSessionModeState,
@@ -1166,6 +1168,8 @@ interface ActiveAcpTurn {
   // Root item ordinals allocated in this turn. Subagent child items keep
   // theirs on the subagent, which carries over into later turns.
   readonly itemOrdinals: Map<string, number>;
+  readonly outgoingPrompt?: ReadonlyArray<EffectAcpSchema.ContentBlock> | undefined;
+  consumedPromptMessageId?: string;
   readonly user: ActiveTextStream;
   readonly assistant: ActiveTextStream;
   readonly reasoning: ActiveTextStream;
@@ -1491,6 +1495,9 @@ interface SnapshotMessageState {
 }
 
 const TOOL_UPDATE_PERSIST_EVERY = 10;
+
+// CommandOutputHub reads the last 256 KiB; retain more so its display cut stays unchanged.
+const MAX_AGENT_TERMINAL_OUTPUT_CHARS = 320 * 1024;
 
 /**
  * Some agents stream a tool's arguments (a file write's diff, `rawInput`) and
@@ -3594,6 +3601,43 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           yield* rearmDeferredFinalize(context);
         });
 
+        /**
+         * Notices have no id; each is its own item, numbered by the turn's item count.
+         * A notice is not conversation content, so an open message keeps streaming across it.
+         */
+        const emitNotice = Effect.fnUntraced(function* (
+          context: ActiveAcpTurn,
+          notice: { readonly title: string; readonly description?: string },
+        ) {
+          const nativeItemId = `${context.nativeTurnId}:notice:${context.itemOrdinals.size}`;
+          const now = yield* DateTime.now;
+          yield* emitProviderEvent({
+            type: "turn_item.updated",
+            driver,
+            turnItem: {
+              id: providerTurnItemId(nativeItemId),
+              threadId: context.input.threadId,
+              runId: context.input.runId,
+              nodeId: context.input.rootNodeId,
+              providerThreadId: context.input.providerThread.id,
+              providerTurnId: context.providerTurnId,
+              nativeItemRef: { driver, nativeId: nativeItemId, strength: "weak" },
+              parentItemId: null,
+              ordinal: yield* resolveItemOrdinal(context, nativeItemId),
+              type: "system_notice",
+              status: "completed",
+              title: notice.title,
+              message:
+                notice.description === undefined
+                  ? notice.title
+                  : `${notice.title}\n\n${notice.description}`,
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+            },
+          });
+        });
+
         const emitPlan = Effect.fnUntraced(function* (
           context: ActiveAcpTurn,
           update: AcpPlanUpdate,
@@ -4157,6 +4201,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             embeddedToolCallIds === undefined || embeddedToolCallIds.size === 0
               ? [`acp-agent-terminal:${update.terminalId}`]
               : [...embeddedToolCallIds];
+          const output = next.output.slice(-MAX_AGENT_TERMINAL_OUTPUT_CHARS);
           for (const toolCallId of projectedToolCallIds) {
             const existing = context.tools.get(toolCallId);
             const seeded: AcpToolCallState =
@@ -4177,7 +4222,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   status,
                   ...(next.command === undefined ? {} : { command: next.command }),
                 },
-                next.output,
+                output,
               ),
             );
           }
@@ -4192,10 +4237,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           if (yield* projectAgentTerminalUpdate(notification, context)) return;
           if (
             update.sessionUpdate === "usage_update" ||
-            update.sessionUpdate === "session_info_update" ||
-            (update.sessionUpdate === "state_update" &&
-              update.state === "idle" &&
-              update.usage != null)
+            update.sessionUpdate === "session_info_update"
           ) {
             const stateEvent = parseSessionUpdateEvent(notification).events.find(
               (event) => event._tag === "UsageUpdated" || event._tag === "SessionInfoUpdated",
@@ -4618,6 +4660,25 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               context.awaitingReplyAfterTool = false;
             }
           }
+          if (
+            context.outgoingPrompt !== undefined &&
+            (update.sessionUpdate === "user_message" ||
+              update.sessionUpdate === "user_message_chunk")
+          ) {
+            // ACP v2 prompt acknowledgments lack a messageId; correlate one full echo by content.
+            if (
+              context.consumedPromptMessageId === undefined &&
+              update.sessionUpdate === "user_message" &&
+              Equal.equals(update.content, context.outgoingPrompt)
+            ) {
+              context.consumedPromptMessageId = update.messageId;
+            }
+            if (
+              context.consumedPromptMessageId !== undefined &&
+              context.consumedPromptMessageId === update.messageId
+            )
+              return;
+          }
           switch (update.sessionUpdate) {
             case "state_update": {
               const toolCallId = `${context.nativeTurnId}:requires-action`;
@@ -4825,6 +4886,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   yield* emitTool(context, event.toolCall);
                 } else if (event._tag === "PlanUpdated") {
                   yield* emitPlan(context, event.payload);
+                } else if (event._tag === "NoticeReceived") {
+                  yield* emitNotice(context, event);
                 } else if (event._tag === "UnknownUpdate") {
                   yield* emitTool(context, {
                     toolCallId: `${context.nativeTurnId}:unsupported:${event.updateType}`,
@@ -5757,8 +5820,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               projectAcpRuntimeSessionUpdate(handlerGeneration, rawNotification),
             );
           }
-          yield* targetRuntime.handleRequestPermission((params, requestContext) =>
+          yield* targetRuntime.handleRequestPermission((nativeParams, requestContext) =>
             Effect.gen(function* () {
+              const trackedTurn = yield* Ref.get(activeTurn);
+              const params =
+                trackedTurn !== null && nativeParams.sessionId === (yield* Ref.get(activeSessionId))
+                  ? withTrackedPermissionToolCall(
+                      nativeParams,
+                      trackedTurn.tools.get(nativeParams.toolCall.toolCallId),
+                    )
+                  : nativeParams;
               const transportRequestId = requestContext.requestId;
               const permissionQuestion = flavor.extractPermissionQuestion?.(params);
               if (permissionQuestion !== undefined) {
@@ -7151,6 +7222,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               startedAt,
               completed,
               itemOrdinals: new Map(),
+              outgoingPrompt:
+                (yield* Ref.get(activeSessionSetup))?.initializeResult.protocolVersion === 2
+                  ? promptParts?.prompt
+                  : undefined,
               user: { current: null, nextSegment: 0 },
               assistant: { current: null, nextSegment: 0 },
               reasoning: { current: null, nextSegment: 0 },

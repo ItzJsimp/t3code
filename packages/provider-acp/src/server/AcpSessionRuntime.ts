@@ -1924,6 +1924,8 @@ export const make = (
         ...options.clientCapabilities?.fs,
       },
       terminal: options.clientCapabilities?.terminal ?? false,
+      // ACP v1 agents send session notices only to clients that advertise them; v2 needs no capability.
+      session: { ...options.clientCapabilities?.session, notices: {} },
       ...(options.clientCapabilities?.auth ? { auth: options.clientCapabilities.auth } : {}),
       ...(options.clientCapabilities?.elicitation
         ? { elicitation: options.clientCapabilities.elicitation }

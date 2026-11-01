@@ -24,6 +24,7 @@ const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
   process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
 const emitV2Fidelity = process.env.T3_ACP_EMIT_V2_FIDELITY === "1";
+const emitNotice = process.env.T3_ACP_EMIT_NOTICE === "1";
 const vibeRetryOutcome = process.env.T3_ACP_VIBE_RETRY_OUTCOME;
 const emitGenericToolPlaceholders = process.env.T3_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
 const emitPostSettleMonitorFlow = process.env.T3_ACP_EMIT_POST_SETTLE_MONITOR_FLOW === "1";
@@ -54,6 +55,7 @@ const waitForResumeRelease = process.env.T3_ACP_WAIT_FOR_RESUME_RELEASE === "1";
 const completeFirstPromptOnCancel = process.env.T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL === "1";
 const floodStderr = process.env.T3_ACP_FLOOD_STDERR === "1";
 const hangPromptForever = process.env.T3_ACP_HANG_PROMPT_FOREVER === "1";
+const emitTrackedToolCallKindThenHang = process.env.T3_ACP_EMIT_TRACKED_TOOL_CALL_KIND_THEN_HANG;
 // Sends fs/write_text_file for this path, then fs/read_text_file, at the start of
 // each prompt whatever the client advertised, and appends each outcome as a JSON
 // line to T3_ACP_CLIENT_FS_PROBE_LOG_PATH.
@@ -107,6 +109,7 @@ const silentStopMarkerPath = process.env.T3_ACP_SILENT_STOP_MARKER_PATH;
 const initialGrokReasoningEffort =
   process.env.T3_ACP_INITIAL_GROK_REASONING_EFFORT?.trim() || undefined;
 const promptDelayMs = Number(process.env.T3_ACP_PROMPT_DELAY_MS ?? "0");
+const terminalOutputBytes = Number(process.env.T3_ACP_EMIT_TERMINAL_OUTPUT_BYTES ?? "0");
 const supportsSessionLifecycle = process.env.T3_ACP_SESSION_LIFECYCLE === "1";
 const supportsAcpMcp = process.env.T3_ACP_MCP_ACP === "1";
 const supportsV2Management = process.env.T3_ACP_V2_MANAGEMENT === "1";
@@ -993,6 +996,60 @@ const program = Effect.gen(function* () {
         return yield* finishPrompt(requestedSessionId, "end_turn");
       }
 
+      if (terminalOutputBytes > 0) {
+        const terminalId = "long-output";
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: { sessionUpdate: "terminal_update", terminalId, command: "print long output" },
+        });
+        // 4 KiB chunks of 64-char numbered lines, like a long build log.
+        for (let line = 0; line * 64 < terminalOutputBytes; line += 64) {
+          let chunk = "";
+          for (let i = line + 1; i <= line + 64; i++) {
+            chunk += `${String(i).padStart(8, "0")} ${"x".repeat(54)}\n`;
+          }
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "terminal_output_chunk",
+              terminalId,
+              data: Buffer.from(chunk)
+                .subarray(0, terminalOutputBytes - line * 64)
+                .toString("base64"),
+            },
+          });
+        }
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: { sessionUpdate: "terminal_update", terminalId, exitStatus: { exitCode: 0 } },
+        });
+        return yield* finishPrompt(requestedSessionId, "end_turn");
+      }
+
+      if (emitNotice) {
+        // A notice in fx 0.0.14's shape for a skipped skill, between two chunks of one message.
+        const chunk = (text: string) =>
+          writeJsonRpcNotification("session/update", {
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              messageId: "mock-notice-message",
+              content: { type: "text", text },
+            },
+          });
+        chunk("before the notice, ");
+        writeJsonRpcNotification("session/update", {
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "notice",
+            severity: "info",
+            title: "skill discovery warning: candidate was skipped because its metadata is invalid",
+          },
+        });
+        chunk("after the notice");
+        return yield* finishPrompt(requestedSessionId, "end_turn");
+      }
+
       if (emitV2Fidelity) {
         yield* agent.client.sessionUpdate({
           sessionId: `${requestedSessionId}-child`,
@@ -1356,6 +1413,21 @@ const program = Effect.gen(function* () {
 
       if (failPrompt) {
         return yield* AcpError.AcpRequestError.internalError("Mock prompt failure");
+      }
+
+      if (emitTrackedToolCallKindThenHang !== undefined) {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tracked-tool-call",
+            title: "git status",
+            kind: emitTrackedToolCallKindThenHang as AcpSchema.ToolKind,
+            status: "pending",
+            rawInput: { command: "git status" },
+          },
+        });
+        return yield* Effect.never;
       }
 
       if (emitStaleXAiPromptCompleteBeforeSecondHang && promptCount === 1) {
