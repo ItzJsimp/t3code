@@ -1084,6 +1084,7 @@ describe("CursorAdapterV2", () => {
       const adapter = yield* makeCursorAdapterV2({
         instanceId,
         environment: { HOME: workspace },
+        settings: yield* decodeCursorSettings({}),
       }).pipe(
         Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
           assertComplete: Effect.void,

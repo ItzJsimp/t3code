@@ -136,7 +136,11 @@ export function makeAcpPlanUpdatedEvent(input: {
   const payload =
     input.payload.kind === "items"
       ? {
-          plan: input.payload.plan,
+          // shortcut: our contract has no "cancelled" step status, so a cancelled step shows as done and stops the running state; add the status to the contract if the UI must tell them apart.
+          plan: input.payload.plan.map((step) => ({
+            step: step.step,
+            status: step.status === "cancelled" ? ("completed" as const) : step.status,
+          })),
           ...(input.payload.explanation == null ? {} : { explanation: input.payload.explanation }),
         }
       : input.payload.kind === "removed"
