@@ -1580,7 +1580,8 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         yield* writeTextFile(cwd, "untracked.txt", "untracked content\n");
         const paths = Array.from({ length: 5000 }, (_, index) => `${"a".repeat(220)}-${index}.txt`);
         const stats = paths.map((path) => `1\t0\t${path}\0`).join("");
-        const untracked = [...paths, "untracked.txt"].join("\0") + "\0";
+        // The untracked listing is a NUL separated status record list, "? " before each path.
+        const untracked = [...paths, "untracked.txt"].map((path) => `? ${path}\0`).join("");
         assert.isAbove(stats.length, 1024 * 1024);
         assert.isAbove(untracked.length, 1024 * 1024);
         let readLargeUntracked = false;
@@ -1590,7 +1591,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
             if (command.args.includes("--numstat") && command.args.includes(mergeBase)) {
               return Effect.succeed(makeSuccessfulHandle(stats));
             }
-            if (command.args.includes("ls-files") && command.args.includes("--others")) {
+            if (command.args.includes("status") && command.args.includes("--untracked-files=all")) {
               return Effect.succeed(makeSuccessfulHandle(readLargeUntracked ? untracked : ""));
             }
           }
@@ -2333,6 +2334,20 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           insertions: 2,
           deletions: 0,
         });
+      }),
+    );
+
+    it.effect("counts untracked files with spaces and non-ASCII names in Changes totals", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "sub dir/new name.txt", "one\ntwo\n");
+        yield* writeTextFile(cwd, "café.txt", "three\n");
+
+        const status = yield* driver.statusDetailsLocal(cwd, { includeBranchChanges: true });
+        assert.deepStrictEqual(status.branchChanges?.insertions, 3);
+        assert.deepStrictEqual(status.branchChanges?.deletions, 0);
       }),
     );
 

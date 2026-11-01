@@ -101,3 +101,42 @@ Changes (branch `upstream-port/2026-10-30`, commit `963c9455dc`, not pushed):
 - **Noise:** single runs range from 0.85 s to 2.8 s. The machine was busier in this pass than in the first (base 1.32 s here, 1.11 s before). Compare medians within one pass only.
 - **What remains:** a serial chain of small git calls (about 100 ms to start, then branch lookups, then the 280 ms listing and the 80 ms diff), plus two `config` calls after the totals. A trace shows a 170 ms gap before `remote get-url` that I did not explain. Further speed needs the Changes totals to start earlier or be cached per folder. That is a design change, not a port.
 - **Checks:** server `tsc` 0 errors; `src/vcs`, `src/sourceControl` and `src/git` tests pass (510).
+
+## Step 3: the Changes totals start beside status, and a taskkill cost (2026-10-31)
+
+**Cause of the "170 ms gap".** On Windows, the Effect process spawner runs `taskkill /pid /T /F` when a child exits with a non-zero code. It does this in an exit handler and again in the scope cleanup, and the cleanup waits for `taskkill.exe` to finish. This costs about 150 to 230 ms in the calling fiber. Source: `@effect/platform-node-shared` `NodeChildProcessSpawner.js`, lines 398 and 411. `taskkill` starts through `execFile`, so the spawn logger in `spawn-preload.mjs` does not show it.
+
+- The status path had two such exits. `git config --get branch.<b>.gh-merge-base` and `git config --get branch.<b>.remote` both exit 1 when the key is unset (the normal case).
+- Proof: the exit code column of `git-trace.mjs` (`x1`) lined up with every gap. After the fix all 18 processes exit 0 and the gaps are gone.
+
+**Changes** (branch `upstream-port/2026-10-30`):
+
+- **Early totals:** the Changes totals chain (`config`, `remote get-url`, `show-ref`, `merge-base`, then the diff) now starts together with `status`, using a fresh `symbolic-ref --short HEAD`. It does not use the cached repository paths, because they keep the old branch for 10 minutes after a checkout. The result is used only when `status` names the same branch. Otherwise the old path runs. Test: `Changes totals follow a checkout made between two status reads`. It fails when both guards are removed.
+- **Config reads:** `git config --get --default ""` for `gh-merge-base` and for `readConfigValue`. An unset key now exits 0 with empty output. `readConfigValue` already maps empty output to `null`. Needs Git 2.18 or newer (2018). On an older Git the option is unknown, the call exits non-zero, and the value reads as unset.
+
+| First local status of a new folder, through the server   | Result                                           |
+| -------------------------------------------------------- | ------------------------------------------------ |
+| Early totals, 3 alternating pairs, 18 runs each (ms)     | 991 to 838 median (15.5 percent)                 |
+| Step 2 against early totals, one pass, 18 runs (ms)      | 1,331 to 937 median (29.6 percent), machine busy |
+| Early totals against early plus config fix, 5 pairs (ms) | 1,175 to 831 median. Quiet pair: 835 to 721      |
+| Processes with a non-zero exit in one status             | 2 to 0                                           |
+
+- **Noise:** this machine was busy (raw `git status` was 105 to 395 ms in the same pass; one run took 3.9 s). Single runs vary by up to 40 percent. The mechanism is certain (the trace), the size of the gain is not. Treat 150 to 300 ms as the range.
+- **Not reached:** the target of 300 ms. A first status still takes about 700 to 800 ms in quiet pairs.
+- **What remains in the critical path:** repository detection before `status` starts (5 serial small `rev-parse` and `symbolic-ref` calls, about 150 to 210 ms), then `status` itself (about 190 to 330 ms), then the `ls-files --others` scan (about 280 ms, 0 bytes of output in the test folders), then the totals diff (about 85 ms).
+- **Wider fix (Jake chose it, 2026-10-31):** every command that exits non-zero on Windows paid the same `taskkill` wait. That includes `show-ref --verify` on a missing remote branch, `remote get-url` with no `origin`, `symbolic-ref` on a detached HEAD, and failing provider and tool commands. A pnpm patch of `@effect/platform-node-shared` (`patches/@effect__platform-node-shared@4.0.2.patch`, commit `8c3e3911a5`) skips both taskkill calls when the child already exited, on Windows only. Other platforms and explicit kills are unchanged. Measured with the real spawner and git (9 runs each): exit 1 took 189 ms median before and 31 ms after. Exit 0 took 22 to 31 ms in both. A new Effect upgrade needs the patch re-made: `pnpm patch @effect/platform-node-shared@<version>`, and check that lines `code !== 0` in `NodeChildProcessSpawner.js` still match.
+
+## Step 4: untracked list from status, and two levers that did not pay (2026-10-31)
+
+Branch `perf/git-status-prelude` in `C:/lcw/up-port`. Bench: 6 adjacent pairs per lever, first status of 6 folders (`C:/lcw/p5/git-bench.mjs`), whole file swapped between runs.
+
+| Lever | Change                                                               | Median pair difference | Pairs faster | Verdict                                                                   |
+| ----- | -------------------------------------------------------------------- | ---------------------- | ------------ | ------------------------------------------------------------------------- |
+| (c)   | Start the untracked scan beside `status`                             | -20 ms                 | 4 of 6       | Weak, inside noise. Kept (no extra work).                                 |
+| (b)   | Run the repository path calls together                               | -48 ms                 | 3 of 6       | No proof. Dropped. It adds 2 spawns in a non-repository and broke a test. |
+| (d)   | List untracked files with `status -z -uall`, not `ls-files --others` | -110 ms                | 5 of 6       | Kept. Pooled median 630 to 515 ms.                                        |
+
+- **Why (d) works:** `ls-files --others --exclude-standard` took about 280 ms and `status -uall` about 130 ms for the same list (6 folders, same counts). `ls-files` is slower, probably because it walks ignored folders such as `node_modules`.
+- **Checks:** `vp test run src/vcs/GitVcsDriverCore.test.ts src/vcs/GitVcsDriver.test.ts`: 211 pass, 3 skipped. `tsc --noEmit` in `apps/server`: 0 errors. A mock in `reads complete tracked and untracked manifests beyond 1 MB` matched `ls-files`, so it was vacuous after (d): it now matches the new `status` call. New test: untracked names with spaces and non-ASCII.
+- **Risk:** the totals now run a second `git status` beside the main one. In an LFS repo with stat-dirty files, the clean filters run twice. `ls-files` did not run them.
+- **Not reached:** the target of 300 ms. First status is about 500 ms now.
