@@ -319,6 +319,7 @@ it.layer(layer)("OpenCode2TextGeneration", (it) => {
         })
         .pipe(Effect.flip, Effect.forkScoped);
       // Real time lets the stalled prompt request go out before the clock moves.
+      // @effect-diagnostics-next-line globalTimers:off - the test clock is frozen, so only real time passes here
       yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 100)));
       yield* TestClock.adjust("3 minutes");
       yield* TestClock.adjust("5 seconds");
