@@ -776,8 +776,8 @@ export function PairingForm({
             <CommandBlock command="npx t3 pair" className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               Start Leonidas on that computer first, or run{" "}
-              <code className="font-mono">npx t3 serve</code>. Add{" "}
-              <code className="font-mono">--tailscale</code> to use your Tailscale network.
+              <code className="font-mono">npx t3 serve</code>. On a Tailscale network, run{" "}
+              <code className="font-mono">npx t3 pair --tailscale</code> instead.
             </p>
           </CollapsiblePanel>
         </Collapsible>
