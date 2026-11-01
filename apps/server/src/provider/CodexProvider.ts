@@ -41,6 +41,8 @@ import {
   AUTH_PROBE_TIMEOUT_MS,
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
+  DEFAULT_TIMEOUT_MS,
+  spawnAndCollect,
   type ServerProviderDraft,
 } from "@t3tools/provider-core/server/snapshotProbe";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -76,6 +78,9 @@ type CodexRateLimitsProbe =
   | { readonly failure: string; readonly connectionIssue?: ServerProvider["connectionIssue"] };
 
 const CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER = "2 seconds" as const;
+// `codex-cli 0.159.0`, `codex-cli 0.160.0-alpha.1` or the npm CLI's bare `0.1.4161006`.
+// Keep a prerelease suffix so compatibility stays unknown for it, as it does for `initialize`.
+const CODEX_CLI_VERSION_PATTERN = /(?:^|\s)v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?=\s|$)/u;
 
 const CODEX_PRESENTATION = {
   displayName: "Codex",
@@ -390,6 +395,23 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
   };
 }
 
+const codexProcessEnvironment = Effect.fn("codexProcessEnvironment")(function* (input: {
+  readonly homePath?: string | undefined;
+  readonly environment?: NodeJS.ProcessEnv | undefined;
+}) {
+  // `~` is not shell-expanded when env vars are set via `child_process.spawn`,
+  // so `CODEX_HOME=~/.codex_work` would reach codex verbatim and trip
+  // "CODEX_HOME points to '~/.codex_work', but that path does not exist".
+  // Expand here for parity with `CodexTextGeneration`.
+  const resolvedHomePath = input.homePath
+    ? expandHomePath(input.homePath, yield* HostProcess.HomeDirectory)
+    : undefined;
+  return {
+    ...input.environment,
+    ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
+  };
+});
+
 /**
  * Spawns a short-lived `codex app-server`, runs the initialize handshake, and
  * hands the caller a connected client. Scoped: the process is killed when
@@ -403,18 +425,8 @@ export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(fu
   readonly cwd: string;
   readonly environment?: NodeJS.ProcessEnv | undefined;
 }) {
-  // `~` is not shell-expanded when env vars are set via `child_process.spawn`,
-  // so `CODEX_HOME=~/.codex_work` would reach codex verbatim and trip
-  // "CODEX_HOME points to '~/.codex_work', but that path does not exist".
-  // Expand here for parity with `CodexTextGeneration`.
-  const resolvedHomePath = input.homePath
-    ? expandHomePath(input.homePath, yield* HostProcess.HomeDirectory)
-    : undefined;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const environment = {
-    ...input.environment,
-    ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
-  };
+  const environment = yield* codexProcessEnvironment(input);
   const spawnCommand = yield* resolveSpawnCommand(
     input.binaryPath,
     codexAppServerArgs(input.launchArgs),
@@ -519,6 +531,39 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     skills: yield* withCodexSkillGrouping(parseCodexSkillsListResponse(skillsResponse, input.cwd)),
   } satisfies CodexAppServerProviderSnapshot;
 });
+
+// Old CLIs can exit before initialize reports the version needed for compatibility advice.
+const probeCodexCliVersion = Effect.fn("probeCodexCliVersion")(
+  function* (input: {
+    readonly binaryPath: string;
+    readonly homePath?: string | undefined;
+    readonly cwd: string;
+    readonly environment?: NodeJS.ProcessEnv | undefined;
+  }) {
+    const environment = yield* codexProcessEnvironment(input);
+    const spawnCommand = yield* resolveSpawnCommand(input.binaryPath, ["--version"], {
+      env: environment,
+      extendEnv: true,
+    });
+    const result = yield* spawnAndCollect(
+      input.binaryPath,
+      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+        cwd: input.cwd,
+        env: environment,
+        extendEnv: true,
+        forceKillAfter: CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER,
+        shell: spawnCommand.shell,
+      }),
+    );
+    if (result.code !== 0) return null;
+    return CODEX_CLI_VERSION_PATTERN.exec(result.stdout)?.[1] ?? null;
+  },
+  Effect.timeoutOption(Duration.millis(DEFAULT_TIMEOUT_MS)),
+  Effect.map(Option.getOrNull),
+  Effect.catch((cause) =>
+    Effect.logDebug("Codex --version fallback failed.", { cause }).pipe(Effect.as(null)),
+  ),
+);
 
 export const probeCodexSkillsForCwd = Effect.fn("probeCodexSkillsForCwd")(function* (input: {
   readonly binaryPath: string;
@@ -680,6 +725,14 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   if (Result.isFailure(probeResult)) {
     const error = probeResult.failure;
     const installed = !isCodexAppServerSpawnError(error);
+    const version = installed
+      ? yield* probeCodexCliVersion({
+          binaryPath: codexSettings.binaryPath,
+          homePath: codexSettings.homePath,
+          cwd: process.cwd(),
+          environment: resolvedEnvironment,
+        })
+      : null;
     return buildServerProvider({
       presentation: CODEX_PRESENTATION,
       enabled: codexSettings.enabled,
@@ -688,7 +741,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       skills: [],
       probe: {
         installed,
-        version: null,
+        version,
         status: "error",
         auth: { status: "unknown" },
         message: installed

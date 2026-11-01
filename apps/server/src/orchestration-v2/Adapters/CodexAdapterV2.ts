@@ -2558,31 +2558,33 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             while (ancestor !== undefined) {
               if (terminalizedNativeTurns.has(ancestor.nativeTurnId)) {
                 const nativeThreadId = yield* getNativeThreadId(subagent.providerThread);
-                const interrupted = yield* client
+                // Fork requests off the notification reader so it can read their responses.
+                yield* client
                   .request("turn/interrupt", {
                     threadId: nativeThreadId,
                     turnId: turn.nativeTurnId,
                   })
                   .pipe(
-                    Effect.as(true),
                     Effect.catch((cause) =>
                       Effect.logWarning("orchestration-v2.codex-late-subagent-interrupt-failed", {
                         nativeThreadId,
                         nativeTurnId: turn.nativeTurnId,
                         cause,
-                      }).pipe(Effect.as(false)),
+                      }),
                     ),
-                    Effect.timeoutOption("10 seconds"),
+                    Effect.timeoutOrElse({
+                      duration: "10 seconds",
+                      orElse: () =>
+                        Effect.logWarning(
+                          "orchestration-v2.codex-late-subagent-interrupt-timeout",
+                          {
+                            nativeThreadId,
+                            nativeTurnId: turn.nativeTurnId,
+                          },
+                        ),
+                    }),
+                    Effect.forkIn(scope),
                   );
-                if (Option.isNone(interrupted)) {
-                  yield* Effect.logWarning(
-                    "orchestration-v2.codex-late-subagent-interrupt-timeout",
-                    {
-                      nativeThreadId,
-                      nativeTurnId: turn.nativeTurnId,
-                    },
-                  );
-                }
                 return;
               }
               ancestor = ancestor.subagent?.parentContext;
@@ -4717,7 +4719,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
 
             if (payload.item.type === "agentMessage") {
-              if (payload.item.phase !== "commentary") {
+              if (payload.item.phase == null || payload.item.phase === "final_answer") {
                 yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
                   const updated = new Map(current);
                   const itemIds = new Set(updated.get(payload.turnId) ?? []);
@@ -5067,7 +5069,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return;
             }
 
-            const finalAnswer = payload.item.phase !== "commentary";
+            const finalAnswer = payload.item.phase == null || payload.item.phase === "final_answer";
             if (finalAnswer) {
               yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
                 const updated = new Map(current);

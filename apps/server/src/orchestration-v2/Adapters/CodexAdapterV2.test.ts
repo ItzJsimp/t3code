@@ -3913,7 +3913,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     answers: ReadonlyArray<{
       readonly id: string;
       readonly text: string;
-      readonly phase?: "commentary" | "final_answer" | null;
+      readonly phase?: "commentary" | "partial_answer" | "final_answer" | null;
       readonly omitPhase?: boolean;
       readonly streamed?: boolean;
       readonly completionDelayMs?: number;
@@ -4007,6 +4007,39 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ],
     });
   };
+
+  it.effect.each([false, true])(
+    "preserves a final answer that repeats a preceding partial answer (streamed: %s)",
+    (streamed) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const transcript = finalAnswerTranscript("codex-partial-then-final", [
+            { id: "partial", text: "CODEX_RECOVERY_OK", phase: "partial_answer", streamed },
+            { id: "final", text: "CODEX_RECOVERY_OK", phase: "final_answer", streamed },
+          ]);
+          const harness = yield* makeCodexReplayHarness(transcript);
+          const now = yield* DateTime.now;
+          yield* harness.runtime.startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now,
+              attemptId: RunAttemptId.make("attempt-codex-partial-then-final"),
+              text: "Reply with the requested recovery marker.",
+            }),
+          );
+          yield* awaitUntil(() => harness.terminalEvents().length === 1, "root turn terminal");
+          assert.deepEqual(
+            assistantMessages(harness.events).map((event) => event.message.text),
+            ["CODEX_RECOVERY_OK", "CODEX_RECOVERY_OK"],
+          );
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
+  );
 
   it.effect("suppresses a trailing empty final answer after a non-empty final answer", () =>
     Effect.scoped(
@@ -5958,6 +5991,136 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         ),
       ),
     ),
+  );
+
+  const interruptSubagentTurnAfterStopTranscript = makeCodexReplayTranscript({
+    scenario: "codex-interrupt-subagent-turn-after-stop",
+    entries: [
+      ...interruptSubagentCommandTranscript.entries.slice(0, -1),
+      {
+        type: "emit_inbound",
+        label: "turn/started/child-after-stop",
+        frame: {
+          method: "turn/started",
+          params: {
+            threadId: INTERRUPT_CHILD_NATIVE_THREAD,
+            turn: makeCodexReplayTurn({
+              id: INTERRUPT_LATE_CHILD_NATIVE_TURN,
+              status: "inProgress",
+            }),
+          },
+        },
+      },
+      {
+        type: "expect_outbound",
+        label: "turn/interrupt/child-after-stop",
+        frame: {
+          id: 7,
+          method: "turn/interrupt",
+          params: {
+            threadId: INTERRUPT_CHILD_NATIVE_THREAD,
+            turnId: INTERRUPT_LATE_CHILD_NATIVE_TURN,
+          },
+        },
+      },
+      {
+        type: "emit_inbound",
+        label: "turn/interrupt/child-after-stop",
+        frame: { id: 7, result: {} },
+      },
+      {
+        type: "emit_inbound",
+        label: "thread/goal/updated/root",
+        frame: {
+          method: "thread/goal/updated",
+          params: {
+            threadId: INTERRUPT_NATIVE_THREAD,
+            turnId: null,
+            goal: {
+              threadId: INTERRUPT_NATIVE_THREAD,
+              objective: INTERRUPT_PROMPT,
+              status: "paused",
+              tokenBudget: null,
+              tokensUsed: 0,
+              timeUsedSeconds: 0,
+              createdAt: 1782622440,
+              updatedAt: 1782622450,
+            },
+          },
+        },
+      },
+      { type: "runtime_exit", status: "success" },
+    ],
+  });
+
+  it.effect(
+    "keeps reading notifications while interrupting a child turn that starts after Stop",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = yield* makeCodexReplayHarness(interruptSubagentTurnAfterStopTranscript);
+          const now = yield* DateTime.now;
+
+          yield* harness.runtime.startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now,
+              attemptId: RunAttemptId.make("attempt-codex-interrupt-subagent-turn-after-stop"),
+              text: INTERRUPT_PROMPT,
+            }),
+          );
+          yield* awaitUntil(
+            () =>
+              harness.events.some(
+                (event) =>
+                  event.type === "turn_item.updated" &&
+                  event.turnItem.type === "command_execution" &&
+                  event.turnItem.nativeItemRef?.nativeId === INTERRUPT_CHILD_COMMAND_ITEM &&
+                  event.turnItem.status === "running",
+              ),
+            "running child command item",
+          );
+          const providerTurnId = harness.events.find(
+            (
+              event,
+            ): event is Extract<
+              ProviderAdapter.ProviderAdapterV2Event,
+              { type: "provider_turn.updated" }
+            > => event.type === "provider_turn.updated" && event.threadId === harness.threadId,
+          )?.providerTurn.id;
+          assert.isDefined(providerTurnId);
+
+          yield* harness.runtime.interruptTurn({
+            providerThread: harness.providerThread,
+            providerTurnId,
+          });
+          yield* awaitUntil(() => harness.terminalEvents().length === 1, "root turn terminal");
+
+          // The TestClock never reaches the interrupt's timeout, so this arrives only
+          // if the reader is free to read the interrupt response and the frame after it.
+          yield* awaitUntil(
+            () =>
+              harness.events.some(
+                (event) =>
+                  event.type === "provider_thread.updated" &&
+                  event.providerThread.goal?.status === "paused",
+              ),
+            "paused goal update",
+          );
+          assert.isFalse(
+            harness.events.some(
+              (event) =>
+                event.type === "provider_turn.updated" &&
+                event.providerTurn.nativeTurnRef?.nativeId === INTERRUPT_LATE_CHILD_NATIVE_TURN,
+            ),
+          );
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
   );
 
   const interruptRescanLateSubagentTurnTranscript = makeCodexReplayTranscript({
