@@ -16,6 +16,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
+import * as MacPermissions from "../permissions/MacPermissions.ts";
 import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
 import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
@@ -218,14 +219,29 @@ const bootstrap = Effect.gen(function* () {
   });
 
   // OS-wide dictation trigger: a hidden helper eats the trigger and holds F24 for Discord Push to Mute.
-  if (environment.platform === "win32") {
+  if (environment.platform === "win32" || environment.platform === "darwin") {
     yield* Effect.gen(function* () {
-      const helper = yield* DictationHotkey.spawnWindowsInputHook(yield* HostProcess.Environment);
+      const hostEnvironment = yield* HostProcess.Environment;
+      const helper =
+        environment.platform === "darwin"
+          ? yield* DictationHotkey.spawnMacInputHook(hostEnvironment)
+          : yield* DictationHotkey.spawnWindowsInputHook(hostEnvironment);
+      // The tap needs Accessibility. Ask once per launch; the helper keeps retrying, so no restart.
+      if (
+        environment.platform === "darwin" &&
+        !Electron.systemPreferences.isTrustedAccessibilityClient(false)
+      ) {
+        yield* (yield* MacPermissions.MacPermissions)
+          .showHelper("accessibility", null, () =>
+            Electron.systemPreferences.isTrustedAccessibilityClient(false),
+          )
+          .pipe(Effect.forkScoped);
+      }
       // A missing or unreadable settings file means the defaults.
       const saved = yield* clientSettings.get.pipe(Effect.orElseSucceed(() => Option.none()));
       yield* DictationHotkey.runDictationHotkey(helper, {
         ...DictationHotkey.dictationConfigFromSettings(
-          "win32",
+          environment.platform,
           Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS),
         ),
         onAction: (action) =>

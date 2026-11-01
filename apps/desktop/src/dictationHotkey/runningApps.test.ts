@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { detectRunningApps, parseTasklist } from "./runningApps.ts";
+import { detectRunningApps, parsePsNames, parseTasklist } from "./runningApps.ts";
 
 const TASKLIST = [
   '"System Idle Process","0","Services","0","8 K"',
@@ -32,5 +32,14 @@ describe("detectRunningApps", () => {
       discord: false,
       wispr: false,
     });
+  });
+});
+
+describe("macOS process names", () => {
+  it("parses ps output and finds Discord and Wispr Flow without .exe", () => {
+    const names = parsePsNames("launchd\nDiscord\nWispr Flow\n\nSafari\n");
+    expect(names).toEqual(["launchd", "Discord", "Wispr Flow", "Safari"]);
+    expect(detectRunningApps(names)).toEqual({ discord: true, wispr: true });
+    expect(detectRunningApps(["Discord Helper"]).discord).toBe(false);
   });
 });

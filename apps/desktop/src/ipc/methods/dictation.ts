@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Schema from "effect/Schema";
 
 import { endActiveDictation, tapHiddenKey } from "../../dictationHotkey/DictationHotkey.ts";
@@ -23,12 +24,13 @@ export const discordSetupStatus = makeIpcMethod({
     bind: Schema.Literals(["done", "missing", "unknown"]),
   }),
   handler: () =>
-    Effect.promise(async () => {
-      const apps = detectRunningApps(await listProcessNames());
+    Effect.gen(function* () {
+      const platform = yield* HostProcess.Platform;
+      const apps = detectRunningApps(yield* Effect.promise(() => listProcessNames(platform)));
       return {
         discordRunning: apps.discord,
         wisprRunning: apps.wispr,
-        bind: await checkDiscordBind(),
+        bind: yield* Effect.promise(checkDiscordBind),
       };
     }),
 });

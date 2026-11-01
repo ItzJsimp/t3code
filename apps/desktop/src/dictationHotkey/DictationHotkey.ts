@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - one short script file write for the macOS helper.
 import type { ClientSettings } from "@t3tools/contracts";
 import {
   idleDictationTrigger,
@@ -14,6 +15,11 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
+import { MAC_INPUT_HOOK_SCRIPT } from "./macInputHookScript.ts";
 import { WINDOWS_INPUT_HOOK_SCRIPT } from "./windowsInputHookScript.ts";
 
 /** Menu actions the renderer turns into composer dictation start, stop and cancel. */
@@ -148,39 +154,28 @@ export const runDictationHotkey = Effect.fn("DictationHotkey.run")(function* (
   );
 });
 
-/** Starts the hidden PowerShell hook helper. EOF on its stdin (our scope closing) ends it. */
-export const spawnWindowsInputHook = Effect.fn("DictationHotkey.spawnWindowsInputHook")(function* (
+/**
+ * Starts a hook helper process. EOF on its stdin (our scope closing) ends it, and the finalizer
+ * asks it to quit first so it can release the hidden Discord key.
+ */
+const spawnInputHook = Effect.fn("DictationHotkey.spawnInputHook")(function* (
+  command: string,
+  args: ReadonlyArray<string>,
   environment: Record<string, string | undefined>,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const input = yield* Queue.unbounded<string>();
-  const windowsRoot = environment.SystemRoot ?? environment.WINDIR;
-  const powershell = windowsRoot
-    ? `${windowsRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
-    : "powershell.exe";
   const handle = yield* spawner.spawn(
-    ChildProcess.make(
-      powershell,
-      [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-WindowStyle",
-        "Hidden",
-        "-Command",
-        WINDOWS_INPUT_HOOK_SCRIPT,
-      ],
-      {
-        env: environment,
-        stdin: Stream.fromQueue(input).pipe(
-          Stream.map((line) => `${line}\n`),
-          Stream.encodeText,
-        ),
-      },
-    ),
+    ChildProcess.make(command, [...args], {
+      env: environment,
+      stdin: Stream.fromQueue(input).pipe(
+        Stream.map((line) => `${line}\n`),
+        Stream.encodeText,
+      ),
+    }),
   );
   yield* handle.stderr.pipe(Stream.runDrain, Effect.ignore, Effect.forkScoped);
-  // Runs before the spawner's kill: let the helper release F24 so Discord never stays muted.
+  // Runs before the spawner's kill: let the helper release the hidden key so Discord never stays muted.
   yield* Effect.addFinalizer(() =>
     Queue.offer(input, "quit").pipe(
       Effect.andThen(handle.exitCode.pipe(Effect.timeout("1 second"))),
@@ -188,9 +183,45 @@ export const spawnWindowsInputHook = Effect.fn("DictationHotkey.spawnWindowsInpu
     ),
   );
   const helper: InputHookHelper = {
-    // A broken pipe just ends the stream; the run then releases F24 and stops.
+    // A broken pipe just ends the stream; the run then releases the key and stops.
     lines: handle.stdout.pipe(Stream.decodeText(), Stream.splitLines, Stream.ignore),
     send: (line) => Queue.offer(input, line).pipe(Effect.asVoid),
   };
   return helper;
+});
+
+/** Starts the hidden PowerShell hook helper. */
+export const spawnWindowsInputHook = Effect.fn("DictationHotkey.spawnWindowsInputHook")(function* (
+  environment: Record<string, string | undefined>,
+) {
+  const windowsRoot = environment.SystemRoot ?? environment.WINDIR;
+  const powershell = windowsRoot
+    ? `${windowsRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+    : "powershell.exe";
+  return yield* spawnInputHook(
+    powershell,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-WindowStyle",
+      "Hidden",
+      "-Command",
+      WINDOWS_INPUT_HOOK_SCRIPT,
+    ],
+    environment,
+  );
+});
+
+/**
+ * Starts the Swift hook helper through the system `swift` interpreter.
+ * shortcut: needs the Xcode Command Line Tools and takes a second or two to start; ship a
+ * prebuilt universal binary in the app bundle before this reaches every Mac user.
+ */
+export const spawnMacInputHook = Effect.fn("DictationHotkey.spawnMacInputHook")(function* (
+  environment: Record<string, string | undefined>,
+) {
+  const file = NodePath.join(NodeOS.tmpdir(), "leonidas-dictation-hook.swift");
+  yield* Effect.promise(() => NodeFSP.writeFile(file, MAC_INPUT_HOOK_SCRIPT));
+  return yield* spawnInputHook("/usr/bin/swift", [file], environment);
 });
