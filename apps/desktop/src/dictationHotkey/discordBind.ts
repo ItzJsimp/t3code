@@ -6,7 +6,7 @@ import * as NodePath from "node:path";
 /** done: Push to Mute is bound to the hidden key. missing: it is not. unknown: the store could not be read. */
 export type BindCheck = "done" | "missing" | "unknown";
 
-const HIDDEN_KEY_CODE = 135; // F24, the key Leonidas holds down while it dictates.
+export const HIDDEN_KEY_CODE = 135; // F24, the key Leonidas holds down while it dictates.
 const RECORD_START = '{"_state":{';
 
 interface Binding {
